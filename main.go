@@ -22,43 +22,10 @@ import (
 )
 
 var (
-	secret      []byte
-	dialRetry   int
-	dialTimeout time.Duration
+	cfgSecret      []byte
+	cfgDialRetry   = 1
+	cfgDialTimeout = 2 * time.Second
 )
-
-var (
-	errBadRequest  = errors.New("Bad request")
-	errDialTimeout = errors.New("Dial timeout")
-)
-
-var (
-	codeOK      = []byte("200")
-	codeIO      = []byte("400")
-	codeBad     = []byte("401")
-	codeDial    = []byte("502")
-	codePeekBuf = []byte("503")
-	codeSendBuf = []byte("504")
-)
-
-var (
-	bufioPool sync.Pool
-	pool256   sync.Pool
-)
-
-func init() {
-	pool256.New = func() interface{} {
-		return make([]byte, 0, 256)
-	}
-}
-
-func make256(n byte) []byte {
-	return pool256.Get().([]byte)[:n]
-}
-
-func free256(b []byte) {
-	pool256.Put(b)
-}
 
 func main() {
 	if _, err := os.Stat("gateway.pid"); err == nil {
@@ -89,31 +56,29 @@ func main() {
 }
 
 func config() {
-	var err error
-
-	secret = []byte(os.Getenv("GW_SECRET"))
+	cfgSecret = []byte(os.Getenv("GW_SECRET"))
 
 	if v := os.Getenv("GW_DIAL_RETRY"); v != "" {
-		dialRetry, err = strconv.Atoi(v)
+		cfgDialRetry, err := strconv.Atoi(v)
 		if err != nil {
 			log.Fatalf("GW_DIAL_RETRY - %s", err)
 		}
-		if dialRetry == 0 {
-			dialRetry = 1
+		if cfgDialRetry == 0 {
+			cfgDialRetry = 1
 		}
 	}
 
 	var timeout int
 	if v := os.Getenv("GW_DIAL_TIMEOUT"); v != "" {
-		timeout, err = strconv.Atoi(v)
+		timeout, err := strconv.Atoi(v)
 		if err != nil {
 			log.Fatalf("GW_DIAL_TIMEOUT - %s", err)
 		}
 		if timeout == 0 {
-			timeout = 1
+			timeout = 2
 		}
 	}
-	dialTimeout = time.Duration(timeout) * time.Second
+	cfgDialTimeout = time.Duration(timeout) * time.Second
 }
 
 func pprof() {
@@ -127,18 +92,17 @@ func pprof() {
 	}
 }
 
-func gateway() {
+func gateway() (addr string) {
+	var err error
+	var listener net.Listener
+
 	port := os.Getenv("GW_PORT")
 	if port == "" {
 		port = "0"
 	}
-	addr := "0.0.0.0:" + port
-	reuse := os.Getenv("GW_REUSE_PORT") == "1"
 
-	var err error
-	var listener net.Listener
-
-	if reuse {
+	addr = "0.0.0.0:" + port
+	if os.Getenv("GW_REUSE_PORT") == "1" {
 		listener, err = reuseport.NewReusablePortListener("tcp4", addr)
 	} else {
 		listener, err = net.Listen("tcp", addr)
@@ -148,8 +112,10 @@ func gateway() {
 		log.Fatalf("Setup listener failed: %s", err)
 	}
 
-	log.Printf("Setup gateway at %s", listener.Addr())
 	go loop(listener)
+	addr = listener.Addr().String()
+	log.Printf("Setup gateway at %s", addr)
+	return
 }
 
 func loop(listener net.Listener) {
@@ -188,6 +154,17 @@ func accept(listener net.Listener) (net.Conn, error) {
 	}
 }
 
+var (
+	bufioPool sync.Pool
+
+	codeOK      = []byte("200")
+	codeBadReq  = []byte("400")
+	codeBadAddr = []byte("401")
+	codeDial    = []byte("502")
+
+	errBadRequest = errors.New("Bad request")
+)
+
 func handle(conn net.Conn) {
 	defer func() {
 		conn.Close()
@@ -215,26 +192,20 @@ func handle(conn net.Conn) {
 		return
 	}
 
-	agent, err := dial(string(addr), conn.RemoteAddr().String())
+	var agent net.Conn
+	agent, err = dial(string(addr), conn, reader)
 	if err != nil {
 		conn.Write(codeDial)
 		return
 	}
+	defer agent.Close()
 
-	buf, err := reader.Peek(reader.Buffered())
-	if err != nil {
-		conn.Write(codePeekBuf)
-		return
-	}
-	if _, err := agent.Write(buf); err != nil {
-		conn.Write(codeSendBuf)
-		return
-	}
+	// now we can release the reader.
+	bufioReleased = true
 	reader.Reset(nil)
 	bufioPool.Put(reader)
-	bufioReleased = true
 
-	if _, err := conn.Write(codeOK); err != nil {
+	if _, err = conn.Write(codeOK); err != nil {
 		return
 	}
 	go safeCopy(agent, conn)
@@ -244,7 +215,7 @@ func handle(conn net.Conn) {
 func handshake(conn net.Conn, reader *bufio.Reader) ([]byte, error) {
 	firstByte, err := reader.ReadByte()
 	if err != nil {
-		conn.Write(codeIO)
+		conn.Write(codeBadReq)
 		return nil, err
 	}
 	switch firstByte {
@@ -262,19 +233,19 @@ func handshakeBinary(conn net.Conn, reader *bufio.Reader) (addr []byte, err erro
 	var n byte
 	n, err = reader.ReadByte()
 	if err != nil {
-		conn.Write(codeIO)
+		conn.Write(codeBadReq)
 		return nil, err
 	}
 
-	bin := make256(n)
-	defer free256(bin)
-
+	var buf [256]byte
+	bin := buf[:n]
 	if _, err = io.ReadFull(reader, bin); err != nil {
-		conn.Write(codeIO)
+		conn.Write(codeBadReq)
 		return nil, err
 	}
-	if addr, err = aes256cbc.Decrypt(secret, bin); err != nil {
-		conn.Write(codeBad)
+
+	if addr, err = aes256cbc.Decrypt(cfgSecret, bin); err != nil {
+		conn.Write(codeBadAddr)
 		return nil, err
 	}
 	return
@@ -283,51 +254,64 @@ func handshakeBinary(conn net.Conn, reader *bufio.Reader) (addr []byte, err erro
 func handshakeText(conn net.Conn, reader *bufio.Reader) (addr []byte, err error) {
 	base64, isPrefix, err := reader.ReadLine()
 	if err != nil {
-		conn.Write(codeIO)
+		conn.Write(codeBadReq)
 		return nil, err
 	}
 	if isPrefix {
-		conn.Write(codeIO)
+		conn.Write(codeBadReq)
 		return nil, errBadRequest
 	}
-	if addr, err = aes256cbc.DecryptBase64(secret, base64); err != nil {
-		conn.Write(codeBad)
+	if addr, err = aes256cbc.DecryptBase64(cfgSecret, base64); err != nil {
+		conn.Write(codeBadAddr)
 		return nil, err
 	}
 	return
 }
 
-func dial(addr string, remoteAddr string) (net.Conn, error) {
-	buf := make256(byte(len(remoteAddr) + 1))
-	defer free256(buf)
-
-	buf[0] = byte(len(remoteAddr))
-	copy(buf[1:], remoteAddr)
-
-	for i := 0; i < dialRetry; i++ {
-		conn, err := net.DialTimeout("tcp", addr, dialTimeout)
+func dial(addr string, conn net.Conn, reader *bufio.Reader) (agent net.Conn, err error) {
+	for i := 0; i < cfgDialRetry; i++ {
+		agent, err = net.DialTimeout("tcp", addr, cfgDialTimeout)
 		if err != nil {
 			if ne, ok := err.(net.Error); ok && ne.Timeout() {
 				continue
 			}
 			return nil, err
 		}
-		// send client address to backend
-		err = conn.SetWriteDeadline(time.Now().Add(dialTimeout))
-		if err != nil {
-			return nil, err
-		}
-		_, err = conn.Write(buf)
-		if err != nil {
-			return nil, err
-		}
-		err = conn.SetWriteDeadline(time.Time{})
-		if err != nil {
-			return nil, err
-		}
-		return conn, nil
+		break
 	}
-	return nil, errDialTimeout
+	if err = agentInit(agent, conn, reader); err != nil {
+		agent.Close()
+		return nil, err
+	}
+	return
+}
+
+func agentInit(agent, conn net.Conn, reader *bufio.Reader) (err error) {
+	err = agent.SetWriteDeadline(time.Now().Add(cfgDialTimeout))
+	if err != nil {
+		return
+	}
+
+	// Send client address to backend
+	var buf [256]byte
+	addr := conn.RemoteAddr().String()
+	addrBuf := buf[:byte(len(addr)+1)]
+	addrBuf[0] = byte(len(addr))
+	copy(addrBuf[1:], addr)
+	if _, err = agent.Write(addrBuf); err != nil {
+		return
+	}
+
+	// Send bufio.Reader buffered data and release bufio.Reader.
+	var data []byte
+	if data, err = reader.Peek(reader.Buffered()); err != nil {
+		return
+	}
+	if _, err = agent.Write(data); err != nil {
+		return
+	}
+
+	return agent.SetWriteDeadline(time.Time{})
 }
 
 func safeCopy(dst io.Writer, src io.Reader) {
