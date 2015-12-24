@@ -16,7 +16,6 @@ import (
 
 func init() {
 	istest = true
-	os.Remove("gateway.pid")
 	os.Setenv("GW_SECRET", "test")
 	os.Setenv("GW_DIAL_TIMEOUT", "1")
 	os.Setenv("GW_DIAL_RETRY", "1")

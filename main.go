@@ -41,9 +41,6 @@ var (
 )
 
 func main() {
-	if _, err := os.Stat("gateway.pid"); err == nil {
-		log.Fatal("Already a pid file there")
-	}
 	pid := syscall.Getpid()
 	if err := ioutil.WriteFile("gateway.pid", []byte(strconv.Itoa(pid)), 0644); err != nil {
 		log.Fatalf("Can't write pid file: %s", err)
@@ -54,15 +51,9 @@ func main() {
 	gateway()
 
 	sigTERM := make(chan os.Signal, 1)
-	sigINT := make(chan os.Signal, 1)
 	signal.Notify(sigTERM, syscall.SIGTERM)
-	signal.Notify(sigINT, syscall.SIGINT)
-
 	log.Printf("Gateway running, pid = %d", pid)
-	select {
-	case <-sigINT:
-	case <-sigTERM:
-	}
+	<-sigTERM
 	log.Printf("Gateway killed")
 }
 
