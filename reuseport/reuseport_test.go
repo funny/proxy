@@ -57,8 +57,14 @@ func TestNewReusablePortListener(t *testing.T) {
 
 	client := &http.Client{
 		Transport: &http.Transport{
-			Dial: func(netw, addr string) (net.Conn, error) {
-				return net.DialTimeout(netw, addr, time.Second*2)
+			Dial: func(netw, addr string) (conn net.Conn, err error) {
+				for i := 0; i < 5; i++ {
+					conn, err = net.DialTimeout(netw, addr, time.Second*2)
+					if err == nil {
+						return conn, nil
+					}
+				}
+				return
 			},
 			ResponseHeaderTimeout: time.Second * 2,
 		},
