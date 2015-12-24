@@ -199,17 +199,13 @@ func handle(conn net.Conn) {
 	}
 
 	var agent net.Conn
-	agent, err = dial(string(addr), conn)
+	agent, err = dial(string(addr), conn, reader)
 	if err != nil {
 		return
 	}
 	defer agent.Close()
 
 	// now we can release the reader.
-	if reader.Buffered() != 0 {
-		conn.Write(codeBadReq)
-		return
-	}
 	bufioReleased = true
 	reader.Reset(nil)
 	bufioPool.Put(reader)
@@ -273,7 +269,7 @@ func handshakeText(conn net.Conn, reader *bufio.Reader) (addr []byte, err error)
 	return
 }
 
-func dial(addr string, conn net.Conn) (agent net.Conn, err error) {
+func dial(addr string, conn net.Conn, reader *bufio.Reader) (agent net.Conn, err error) {
 	for i := 0; i < cfgDialRetry; i++ {
 		agent, err = net.DialTimeout("tcp", addr, cfgDialTimeout)
 		if err == nil {
@@ -289,8 +285,7 @@ func dial(addr string, conn net.Conn) (agent net.Conn, err error) {
 		conn.Write(codeDialTimeout)
 		return nil, err
 	}
-	// Send client address to backend
-	if err = agentInit(agent, conn.RemoteAddr().String()); err != nil {
+	if err = agentInit(agent, conn, reader); err != nil {
 		agent.Close()
 		conn.Write(codeDialErr)
 		return nil, err
@@ -298,18 +293,31 @@ func dial(addr string, conn net.Conn) (agent net.Conn, err error) {
 	return
 }
 
-func agentInit(agent net.Conn, addr string) (err error) {
+func agentInit(agent, conn net.Conn, reader *bufio.Reader) (err error) {
 	err = agent.SetWriteDeadline(time.Now().Add(cfgDialTimeout))
 	if err != nil {
 		return
 	}
+
+	// Send client address to backend
 	var buf [256]byte
+	addr := conn.RemoteAddr().String()
 	addrBuf := buf[:byte(len(addr)+1)]
 	addrBuf[0] = byte(len(addr))
 	copy(addrBuf[1:], addr)
 	if _, err = agent.Write(addrBuf); err != nil {
 		return
 	}
+
+	// Send bufio.Reader buffered data and release bufio.Reader.
+	var data []byte
+	if data, err = reader.Peek(reader.Buffered()); err != nil {
+		return
+	}
+	if _, err = agent.Write(data); err != nil {
+		return
+	}
+
 	return agent.SetWriteDeadline(time.Time{})
 }
 
