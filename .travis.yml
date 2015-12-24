@@ -21,7 +21,6 @@ install:
 script:
     - go vet -x ./...
     - $HOME/gopath/bin/golint ./...
-    - go test -v ./reuseport
     - go test -v -covermode=count -coverprofile=profile.cov
 
 after_script:
