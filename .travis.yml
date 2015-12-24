@@ -25,3 +25,7 @@ script:
 after_script:
     - $HOME/gopath/bin/goveralls -coverprofile=profile.cov -service=travis-ci
     - go test -benchmem -bench .
+
+matrix:
+  allow_failures:
+    - go: 1.5
