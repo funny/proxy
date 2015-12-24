@@ -142,7 +142,7 @@ func BenchmarkNewReusablePortListener(b *testing.B) {
 	}
 }
 
-func ExampleNewReusablePortListener(b *testing.B) {
+func ExampleNewReusablePortListener() {
 	listener, err := NewReusablePortListener("tcp4", ":8881")
 	if err != nil {
 		panic(err)
