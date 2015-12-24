@@ -45,7 +45,7 @@ func main() {
 	}
 	pid := syscall.Getpid()
 	if err := ioutil.WriteFile("gateway.pid", []byte(strconv.Itoa(pid)), 0644); err != nil {
-		log.Fatal("Can't write pid file: %s", err)
+		log.Fatalf("Can't write pid file: %s", err)
 	}
 	defer os.Remove("gateway.pid")
 
