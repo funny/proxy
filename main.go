@@ -314,14 +314,15 @@ func agentInit(agent, conn net.Conn, reader *bufio.Reader) (err error) {
 	}
 
 	// Send bufio.Reader buffered data and release bufio.Reader.
-	var data []byte
-	if data, err = reader.Peek(reader.Buffered()); err != nil {
-		return
+	if n := reader.Buffered(); n > 0 {
+		var data []byte
+		if data, err = reader.Peek(n); err != nil {
+			return
+		}
+		if _, err = agent.Write(data); err != nil {
+			return
+		}
 	}
-	if _, err = agent.Write(data); err != nil {
-		return
-	}
-
 	return agent.SetWriteDeadline(time.Time{})
 }
 
