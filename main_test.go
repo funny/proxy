@@ -6,7 +6,8 @@ import (
 	"math/rand"
 	"net"
 	"os"
-	gotest "testing"
+	"strings"
+	"testing"
 	"time"
 
 	"github.com/funny/crypto/aes256cbc"
@@ -14,14 +15,14 @@ import (
 )
 
 func init() {
+	istest = true
+	os.Remove("gateway.pid")
 	os.Setenv("GW_SECRET", "test")
-	os.Setenv("GW_PORT", "0")
 	os.Setenv("GW_DIAL_TIMEOUT", "1")
 	os.Setenv("GW_DIAL_RETRY", "1")
 	os.Setenv("GW_PPROF_ADDR", "0.0.0.0:0")
-
-	testing = true
-	main()
+	go main()
+	time.Sleep(time.Second * 2)
 }
 
 func RandBytes(n int) []byte {
@@ -33,7 +34,61 @@ func RandBytes(n int) []byte {
 	return b
 }
 
-func Test_BadReq(t *gotest.T) {
+func Test_Config(t *testing.T) {
+	os.Setenv("GW_DIAL_TIMEOUT", "")
+	os.Setenv("GW_DIAL_RETRY", "")
+	os.Setenv("GW_PPROF_ADDR", "")
+
+	os.Setenv("GW_SECRET", "")
+	func() {
+		defer func() {
+			err := recover()
+			utest.NotNilNow(t, err)
+			utest.Assert(t, strings.Contains(err.(string), "GW_SECRET"))
+		}()
+		config()
+	}()
+	os.Setenv("GW_SECRET", "test")
+
+	os.Setenv("GW_DIAL_RETRY", "a")
+	func() {
+		defer func() {
+			err := recover()
+			utest.NotNilNow(t, err)
+			utest.Assert(t, strings.Contains(err.(string), "GW_DIAL_RETRY"))
+		}()
+		config()
+	}()
+	os.Setenv("GW_DIAL_RETRY", "0")
+
+	os.Setenv("GW_DIAL_TIMEOUT", "a")
+	func() {
+		defer func() {
+			err := recover()
+			utest.NotNilNow(t, err)
+			utest.Assert(t, strings.Contains(err.(string), "GW_DIAL_TIMEOUT"))
+		}()
+		config()
+	}()
+	os.Setenv("GW_DIAL_TIMEOUT", "0")
+
+	os.Setenv("GW_PPROF_ADDR", "abc")
+	func() {
+		defer func() {
+			err := recover()
+			utest.NotNilNow(t, err)
+			utest.Assert(t, strings.Contains(err.(string), "pprof"))
+		}()
+		config()
+	}()
+	os.Setenv("GW_PPROF_ADDR", "")
+
+	utest.EqualNow(t, cfgDialRetry, 1)
+	utest.EqualNow(t, int(cfgDialTimeout), int(3*time.Second))
+	cfgDialTimeout = time.Second
+}
+
+func Test_BadReq(t *testing.T) {
 	conn, err := net.Dial("tcp", gatewayAddr)
 	utest.IsNilNow(t, err)
 	defer conn.Close()
@@ -47,7 +102,7 @@ func Test_BadReq(t *gotest.T) {
 	utest.EqualNow(t, string(code), string(codeBadReq))
 }
 
-func Test_TextBadReq(t *gotest.T) {
+func Test_TextBadReq(t *testing.T) {
 	conn, err := net.Dial("tcp", gatewayAddr)
 	utest.IsNilNow(t, err)
 	defer conn.Close()
@@ -64,7 +119,7 @@ func Test_TextBadReq(t *gotest.T) {
 	utest.EqualNow(t, string(code), string(codeBadReq))
 }
 
-func Test_BinaryBadReq1(t *gotest.T) {
+func Test_BinaryBadReq1(t *testing.T) {
 	conn, err := net.Dial("tcp", gatewayAddr)
 	utest.IsNilNow(t, err)
 	defer conn.Close()
@@ -81,7 +136,7 @@ func Test_BinaryBadReq1(t *gotest.T) {
 	utest.EqualNow(t, string(code), string(codeBadReq))
 }
 
-func Test_BinaryBadReq2(t *gotest.T) {
+func Test_BinaryBadReq2(t *testing.T) {
 	conn, err := net.Dial("tcp", gatewayAddr)
 	utest.IsNilNow(t, err)
 	defer conn.Close()
@@ -98,7 +153,7 @@ func Test_BinaryBadReq2(t *gotest.T) {
 	utest.EqualNow(t, string(code), string(codeBadReq))
 }
 
-func Test_TextBadAddr(t *gotest.T) {
+func Test_TextBadAddr(t *testing.T) {
 	conn, err := net.Dial("tcp", gatewayAddr)
 	utest.IsNilNow(t, err)
 	defer conn.Close()
@@ -112,7 +167,7 @@ func Test_TextBadAddr(t *gotest.T) {
 	utest.EqualNow(t, string(code), string(codeBadAddr))
 }
 
-func Test_BinaryBadAddr(t *gotest.T) {
+func Test_BinaryBadAddr(t *testing.T) {
 	conn, err := net.Dial("tcp", gatewayAddr)
 	utest.IsNilNow(t, err)
 	defer conn.Close()
@@ -126,7 +181,7 @@ func Test_BinaryBadAddr(t *gotest.T) {
 	utest.EqualNow(t, string(code), string(codeBadAddr))
 }
 
-func Test_CodeDialErr(t *gotest.T) {
+func Test_CodeDialErr(t *testing.T) {
 	conn, err := net.Dial("tcp", gatewayAddr)
 	utest.IsNilNow(t, err)
 	defer conn.Close()
@@ -145,7 +200,7 @@ func Test_CodeDialErr(t *gotest.T) {
 	utest.EqualNow(t, string(code), string(codeDialErr))
 }
 
-func Test_CodeDialTimeout(t *gotest.T) {
+func Test_CodeDialTimeout(t *testing.T) {
 	oldTimeout := cfgDialTimeout
 	cfgDialTimeout = 10 * time.Microsecond
 	defer func() {
@@ -174,7 +229,7 @@ func Test_CodeDialTimeout(t *gotest.T) {
 	utest.EqualNow(t, string(code), string(codeDialTimeout))
 }
 
-func Test_BinaryOK(t *gotest.T) {
+func Test_BinaryOK(t *testing.T) {
 	listener, err := net.Listen("tcp", "0.0.0.0:0")
 	utest.IsNilNow(t, err)
 	defer listener.Close()
@@ -199,7 +254,7 @@ func Test_BinaryOK(t *gotest.T) {
 	utest.EqualNow(t, string(code), string(codeOK))
 }
 
-func Test_TextOK(t *gotest.T) {
+func Test_TextOK(t *testing.T) {
 	listener, err := net.Listen("tcp", "0.0.0.0:0")
 	utest.IsNilNow(t, err)
 	defer listener.Close()
@@ -222,7 +277,71 @@ func Test_TextOK(t *gotest.T) {
 	utest.EqualNow(t, string(code), string(codeOK))
 }
 
-func Test_Normal(t *gotest.T) {
+type TestError struct {
+	timeout   bool
+	temporary bool
+}
+
+func (e TestError) Error() string {
+	return "This is test error"
+}
+
+func (e TestError) Timeout() bool {
+	return e.timeout
+}
+
+func (e TestError) Temporary() bool {
+	return e.temporary
+}
+
+type TestListener struct {
+	n   int
+	err TestError
+}
+
+func (l *TestListener) Accept() (net.Conn, error) {
+	if l.n == -1 {
+		return nil, l.err
+	}
+	if l.n == 0 {
+		return &net.TCPConn{}, nil
+	}
+	l.n--
+	return nil, l.err
+}
+
+func (l *TestListener) Close() error {
+	return nil
+}
+
+func (l *TestListener) Addr() net.Addr {
+	return nil
+}
+
+func Test_Accept(t *testing.T) {
+	_, err := accept(&TestListener{
+		9, TestError{false, true},
+	})
+	utest.IsNilNow(t, err)
+
+	_, err = accept(&TestListener{
+		-1, TestError{true, false},
+	})
+	utest.NotNilNow(t, err)
+
+	func() {
+		defer func() {
+			err := recover()
+			utest.NotNilNow(t, err)
+			utest.Assert(t, strings.Contains(err.(string), "Gateway accept failed"))
+		}()
+		loop(&TestListener{
+			-1, TestError{true, false},
+		})
+	}()
+}
+
+func Test_Transfer(t *testing.T) {
 	clientAddrChan := make(chan string, 1)
 
 	listener, err := net.Listen("tcp", "0.0.0.0:0")
@@ -270,15 +389,18 @@ func Test_Normal(t *gotest.T) {
 	utest.IsNilNow(t, err)
 	utest.EqualNow(t, string(code), string(codeOK))
 
-	for j := 0; j < 10000; j++ {
-		b1 := RandBytes(256)
-		_, err = conn.Write(b1)
-		utest.IsNilNow(t, err)
+	for i := 0; i < 100; i++ {
+		println(i)
+		for j := 0; j < 10000; j++ {
+			b1 := RandBytes(256)
+			_, err = conn.Write(b1)
+			utest.IsNilNow(t, err)
 
-		b2 := make([]byte, len(b1))
-		_, err = io.ReadFull(conn, b2)
-		utest.IsNilNow(t, err)
+			b2 := make([]byte, len(b1))
+			_, err = io.ReadFull(conn, b2)
+			utest.IsNilNow(t, err)
 
-		utest.EqualNow(t, b1, b2)
+			utest.EqualNow(t, b1, b2)
+		}
 	}
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"errors"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
@@ -34,7 +35,7 @@ var (
 
 	errBadRequest = errors.New("Bad request")
 
-	testing     bool
+	istest      bool
 	gatewayAddr string
 	bufioPool   sync.Pool
 )
@@ -50,7 +51,6 @@ func main() {
 	defer os.Remove("gateway.pid")
 
 	config()
-	pprof()
 	gateway()
 
 	sigTERM := make(chan os.Signal, 1)
@@ -59,25 +59,41 @@ func main() {
 	signal.Notify(sigINT, syscall.SIGINT)
 
 	log.Printf("Gateway running, pid = %d", pid)
-	if !testing {
-		select {
-		case <-sigINT:
-		case <-sigTERM:
-		}
-		log.Printf("Gateway killed")
+	select {
+	case <-sigINT:
+	case <-sigTERM:
 	}
+	log.Printf("Gateway killed")
+}
+
+func fatal(t string) {
+	if !istest {
+		log.Fatal(t)
+	}
+	panic(t)
+}
+
+func fatalf(t string, args ...interface{}) {
+	if !istest {
+		log.Fatalf(t, args...)
+	}
+	panic(fmt.Sprintf(t, args...))
 }
 
 func config() {
-	var err error
+	if v := os.Getenv("GW_SECRET"); v != "" {
+		cfgSecret = []byte(os.Getenv("GW_SECRET"))
+		log.Printf("GW_SECRET=%s", cfgSecret)
+	} else {
+		fatal("GW_SECRET is required")
+	}
 
-	cfgSecret = []byte(os.Getenv("GW_SECRET"))
-	log.Printf("GW_SECRET=%s", cfgSecret)
+	var err error
 
 	if v := os.Getenv("GW_DIAL_RETRY"); v != "" {
 		cfgDialRetry, err = strconv.Atoi(v)
 		if err != nil {
-			log.Fatalf("GW_DIAL_RETRY - %s", err)
+			fatalf("GW_DIAL_RETRY - %s", err)
 		}
 		if cfgDialRetry == 0 {
 			cfgDialRetry = 1
@@ -89,7 +105,7 @@ func config() {
 	if v := os.Getenv("GW_DIAL_TIMEOUT"); v != "" {
 		timeout, err = strconv.Atoi(v)
 		if err != nil {
-			log.Fatalf("GW_DIAL_TIMEOUT - %s", err)
+			fatalf("GW_DIAL_TIMEOUT - %s", err)
 		}
 	}
 	if timeout == 0 {
@@ -97,13 +113,11 @@ func config() {
 	}
 	cfgDialTimeout = time.Duration(timeout) * time.Second
 	log.Printf("GW_DIAL_TIMEOUT=%d", timeout)
-}
 
-func pprof() {
 	if v := os.Getenv("GW_PPROF_ADDR"); v != "" {
 		listener, err := net.Listen("tcp", v)
 		if err != nil {
-			log.Fatalf("Setup pprof failed: %s", err)
+			fatalf("Setup pprof failed: %s", err)
 		}
 		log.Printf("Setup pprof at %s", listener.Addr())
 		go http.Serve(listener, nil)
@@ -126,12 +140,11 @@ func gateway() {
 	}
 
 	if err != nil {
-		log.Fatalf("Setup listener failed: %s", err)
+		fatalf("Setup listener failed: %s", err)
 	}
 
 	gatewayAddr = listener.Addr().String()
 	log.Printf("Setup gateway at %s", gatewayAddr)
-
 	go loop(listener)
 }
 
@@ -140,7 +153,7 @@ func loop(listener net.Listener) {
 	for {
 		conn, err := accept(listener)
 		if err != nil {
-			log.Printf("Gateway accept failed: %s", err)
+			fatalf("Gateway accept failed: %s", err)
 			return
 		}
 		go handle(conn)
@@ -213,8 +226,8 @@ func handle(conn net.Conn) {
 	if _, err = conn.Write(codeOK); err != nil {
 		return
 	}
-	go safeCopy(agent, conn)
-	io.Copy(conn, agent)
+	go safeCopy(conn, agent)
+	io.Copy(agent, conn)
 }
 
 func handshake(conn net.Conn, reader *bufio.Reader) ([]byte, error) {
