@@ -6,8 +6,6 @@ import (
 	"math/rand"
 	"net"
 	"os"
-	"strconv"
-	"syscall"
 	gotest "testing"
 	"time"
 
@@ -33,54 +31,6 @@ func RandBytes(n int) []byte {
 		b[i] = byte(rand.Intn(255))
 	}
 	return b
-}
-
-func NewTimeoutListener(addr string) (l net.Listener, err error) {
-	var (
-		fd    int
-		file  *os.File
-		addr4 [4]byte
-		ip    *net.TCPAddr
-	)
-
-	ip, err = net.ResolveTCPAddr("tcp4", addr)
-	if err != nil {
-		return nil, err
-	}
-	if ip.IP != nil {
-		copy(addr4[:], ip.IP[12:16]) // copy last 4 bytes of slice to array
-	}
-
-	if fd, err = syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM, syscall.IPPROTO_TCP); err != nil {
-		return nil, err
-	}
-
-	defer func() {
-		if err != nil {
-			syscall.Close(fd)
-		}
-	}()
-
-	if err = syscall.Bind(fd, &syscall.SockaddrInet4{Port: ip.Port, Addr: addr4}); err != nil {
-		return nil, err
-	}
-
-	// Set backlog size to the 0
-	if err = syscall.Listen(fd, 0); err != nil {
-		return nil, err
-	}
-
-	// File Name get be nil
-	file = os.NewFile(uintptr(fd), "port."+strconv.Itoa(os.Getpid()))
-	if l, err = net.FileListener(file); err != nil {
-		return nil, err
-	}
-
-	if err = file.Close(); err != nil {
-		return nil, err
-	}
-
-	return l, err
 }
 
 func Test_BadReq(t *gotest.T) {
@@ -196,17 +146,15 @@ func Test_CodeDialErr(t *gotest.T) {
 }
 
 func Test_CodeDialTimeout(t *gotest.T) {
-	listener, err := NewTimeoutListener("0.0.0.0:0")
+	oldTimeout := cfgDialTimeout
+	cfgDialTimeout = 10 * time.Microsecond
+	defer func() {
+		cfgDialTimeout = oldTimeout
+	}()
+
+	listener, err := net.Listen("tcp", "0.0.0.0:0")
 	utest.IsNilNow(t, err)
 	defer listener.Close()
-
-	for {
-		conn1, err := net.DialTimeout("tcp", listener.Addr().String(), time.Second)
-		if err != nil {
-			break
-		}
-		defer conn1.Close()
-	}
 
 	conn, err := net.Dial("tcp", gatewayAddr)
 	utest.IsNilNow(t, err)
