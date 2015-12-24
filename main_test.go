@@ -9,7 +9,7 @@ import (
 	gotest "testing"
 	"time"
 
-	"github.com/funny/gateway/aes256cbc"
+	"github.com/funny/crypto/aes256cbc"
 	"github.com/funny/utest"
 )
 
