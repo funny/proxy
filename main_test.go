@@ -365,31 +365,31 @@ func Test_Transfer(t *testing.T) {
 				utest.IsNilNow(t, err)
 				utest.EqualNow(t, <-clientAddrChan, string(clientAddr))
 
-				io.Copy(conn, conn)
+				io.Copy(conn, reader)
 			}()
 		}
 	}()
 
-	conn, err := net.Dial("tcp", gatewayAddr)
-	utest.IsNilNow(t, err)
-	defer conn.Close()
-	clientAddrChan <- conn.LocalAddr().String()
+	for i := 0; i < 20; i++ {
+		conn, err := net.Dial("tcp", gatewayAddr)
+		utest.IsNilNow(t, err)
+		defer conn.Close()
+		clientAddrChan <- conn.LocalAddr().String()
 
-	encryptedAddr, err := aes256cbc.EncryptString(string(cfgSecret), listener.Addr().String())
-	utest.IsNilNow(t, err)
+		encryptedAddr, err := aes256cbc.EncryptString(string(cfgSecret), listener.Addr().String())
+		utest.IsNilNow(t, err)
 
-	_, err = conn.Write([]byte(encryptedAddr))
-	utest.IsNilNow(t, err)
-	_, err = conn.Write([]byte("\n"))
-	utest.IsNilNow(t, err)
+		_, err = conn.Write([]byte(encryptedAddr))
+		utest.IsNilNow(t, err)
+		_, err = conn.Write([]byte("\nabc"))
+		utest.IsNilNow(t, err)
 
-	code := make([]byte, 3)
-	_, err = io.ReadFull(conn, code)
-	utest.IsNilNow(t, err)
-	utest.EqualNow(t, string(code), string(codeOK))
+		code := make([]byte, 6)
+		_, err = io.ReadFull(conn, code)
+		utest.IsNilNow(t, err)
+		utest.EqualNow(t, string(code[:3]), string(codeOK))
+		utest.EqualNow(t, string(code[3:]), "abc")
 
-	for i := 0; i < 100; i++ {
-		println(i)
 		for j := 0; j < 10000; j++ {
 			b1 := RandBytes(256)
 			_, err = conn.Write(b1)
