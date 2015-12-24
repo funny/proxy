@@ -98,3 +98,11 @@ U2FsdGVkX19KIJ9OQJKT/yHGMrS+5SsBAAjetomptQ0=\n
 ```
 kill `cat gateway.pid`
 ```
+
+TODO
+====
+
+* 后端服务器主动连接网关？
+* 提供客户端接入代码
+* 提供后端接入代码
+* 提升单元测试覆盖率
