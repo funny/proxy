@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -19,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/funny/crypto/aes256cbc"
 	"github.com/funny/gateway/reuseport"
 )
 
@@ -43,7 +43,6 @@ var (
 	isTest      bool
 	gatewayAddr string
 	bufioPool   sync.Pool
-	bufferPool  sync.Pool
 )
 
 func main() {
@@ -211,17 +210,9 @@ func handle(conn net.Conn) {
 		}
 	}()
 
-	addr, header, isHTTP := handshake(conn, reader)
+	addr := handshake(conn, reader)
 	if addr == nil {
 		return
-	}
-	if header != nil {
-		defer func() {
-			if !released {
-				header.Reset()
-				bufferPool.Put(header)
-			}
-		}()
 	}
 
 	agent := dial(string(addr), conn, reader)
@@ -230,20 +221,67 @@ func handle(conn net.Conn) {
 	}
 	defer agent.Close()
 
-	released = release(agent, conn, reader, header)
+	released = release(agent, conn, reader)
 	if !released {
 		conn.Write(codeDialErr)
 		return
 	}
 
-	if !isHTTP {
-		if _, err := conn.Write(codeOK); err != nil {
-			return
-		}
+	if _, err := conn.Write(codeOK); err != nil {
+		return
 	}
 
 	go safeCopy(conn, agent)
 	io.Copy(agent, conn)
+}
+
+func handshake(conn net.Conn, reader *bufio.Reader) (addr []byte) {
+	firstByte, err := reader.ReadByte()
+	if err != nil {
+		conn.Write(codeBadReq)
+		return
+	}
+	switch firstByte {
+	case 0:
+		return handshakeBinary(conn, reader)
+	default:
+		if err = reader.UnreadByte(); err != nil {
+			return
+		}
+		return handshakeText(conn, reader)
+	}
+}
+
+func handshakeBinary(conn net.Conn, reader *bufio.Reader) (addr []byte) {
+	var buf [256]byte
+	n, err := reader.ReadByte()
+	if err != nil {
+		conn.Write(codeBadReq)
+		return nil
+	}
+	bin := buf[:n]
+	if _, err = io.ReadFull(reader, bin); err != nil {
+		conn.Write(codeBadReq)
+		return nil
+	}
+	if addr, err = aes256cbc.Decrypt(cfgSecret, bin); err != nil {
+		conn.Write(codeBadAddr)
+		return nil
+	}
+	return
+}
+
+func handshakeText(conn net.Conn, reader *bufio.Reader) (addr []byte) {
+	head, err := reader.ReadSlice('\n')
+	if err != nil {
+		conn.Write(codeBadReq)
+		return
+	}
+	if addr, err = aes256cbc.DecryptBase64(cfgSecret, head); err != nil {
+		conn.Write(codeBadAddr)
+		return
+	}
+	return
 }
 
 func dial(addr string, conn net.Conn, reader *bufio.Reader) net.Conn {
@@ -262,27 +300,19 @@ func dial(addr string, conn net.Conn, reader *bufio.Reader) net.Conn {
 	return nil
 }
 
-func release(agent, conn net.Conn, reader *bufio.Reader, header *bytes.Buffer) bool {
-	hasHeader := header != nil && header.Len() > 0
+func release(agent, conn net.Conn, reader *bufio.Reader) bool {
 	// Send bufio.Reader buffered data.
-	if n := reader.Buffered(); n > 0 || hasHeader {
+	if n := reader.Buffered(); n > 0 {
 		err := agent.SetWriteDeadline(time.Now().Add(cfgDialTimeout))
 		if err != nil {
 			return false
 		}
-		if hasHeader {
-			if _, err = agent.Write(header.Bytes()); err != nil {
-				return false
-			}
+		var data []byte
+		if data, err = reader.Peek(n); err != nil {
+			return false
 		}
-		if n > 0 {
-			var data []byte
-			if data, err = reader.Peek(n); err != nil {
-				return false
-			}
-			if _, err = agent.Write(data); err != nil {
-				return false
-			}
+		if _, err = agent.Write(data); err != nil {
+			return false
 		}
 		err = agent.SetWriteDeadline(time.Time{})
 		if err != nil {
@@ -292,11 +322,6 @@ func release(agent, conn net.Conn, reader *bufio.Reader, header *bytes.Buffer) b
 	// Release the reader.
 	reader.Reset(nil)
 	bufioPool.Put(reader)
-	// Release the header.
-	if header != nil {
-		header.Reset()
-		bufferPool.Put(header)
-	}
 	return true
 }
 

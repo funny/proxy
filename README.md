@@ -20,7 +20,6 @@
 3. 零配置，运维人员无需手工进行后端服务器列表配置
 4. 高性能，网关内部初始化好连接后，使用[`sendfile`](https://www.ibm.com/developerworks/cn/linux/l-cn-zerocopy2/)进行零拷贝的数据传输
 5. 端口重用，利用高版本Linux内核的[`reuseport`](http://www.blogjava.net/yongboy/archive/2015/02/12/422893.html)机制，可以开多个网关进程守候同一个端口，以提高多核利用率
-6. 可作为HTTP代理
 
 协议
 ====
