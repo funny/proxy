@@ -16,6 +16,7 @@ import (
 func init() {
 	isTest = true
 	os.Setenv("GW_SECRET", "test")
+	os.Setenv("GW_ADDR", "")
 	os.Setenv("GW_DIAL_TIMEOUT", "1")
 	os.Setenv("GW_DIAL_RETRY", "1")
 	os.Setenv("GW_PPROF_ADDR", "0.0.0.0:0")
@@ -84,6 +85,19 @@ func Test_Config(t *testing.T) {
 	utest.EqualNow(t, cfgDialRetry, 1)
 	utest.EqualNow(t, int(cfgDialTimeout), int(3*time.Second))
 	cfgDialTimeout = time.Second
+}
+
+func Test_Start(t *testing.T) {
+	cfgReusePort = true
+	cfgAddr = "abc"
+	func() {
+		defer func() {
+			err := recover()
+			utest.NotNilNow(t, err)
+			utest.Assert(t, strings.Contains(err.(string), "listener"))
+		}()
+		start()
+	}()
 }
 
 func Test_BadReq(t *testing.T) {

@@ -23,6 +23,8 @@ import (
 
 var (
 	cfgSecret            []byte
+	cfgAddr              = "0.0.0.0:0"
+	cfgReusePort         = false
 	cfgDialRetry         = 1
 	cfgDialTimeout       = 3 * time.Second
 	cfgMaxHTTPHeaderSize = 8096
@@ -46,7 +48,7 @@ func main() {
 	defer os.Remove("gateway.pid")
 
 	config()
-	gateway()
+	start()
 
 	sigTERM := make(chan os.Signal, 1)
 	signal.Notify(sigTERM, syscall.SIGTERM)
@@ -76,12 +78,17 @@ func printf(t string, args ...interface{}) {
 }
 
 func config() {
-	if v := os.Getenv("GW_SECRET"); v != "" {
-		cfgSecret = []byte(os.Getenv("GW_SECRET"))
-		printf("GW_SECRET=%s", cfgSecret)
-	} else {
+	if cfgSecret = []byte(os.Getenv("GW_SECRET")); len(cfgSecret) == 0 {
 		fatal("GW_SECRET is required")
 	}
+	printf("GW_SECRET=%s", cfgSecret)
+
+	if cfgAddr = os.Getenv("GW_ADDR"); cfgAddr == "" {
+		cfgAddr = "0.0.0.0:0"
+	}
+	printf("GW_ADDR=%s", cfgAddr)
+
+	cfgReusePort = os.Getenv("GW_REUSE_PORT") == "1"
 
 	var err error
 
@@ -119,19 +126,14 @@ func config() {
 	}
 }
 
-func gateway() {
+func start() {
 	var err error
 	var listener net.Listener
 
-	port := os.Getenv("GW_PORT")
-	if port == "" {
-		port = "0"
-	}
-
-	if os.Getenv("GW_REUSE_PORT") == "1" {
-		listener, err = reuseport.NewReusablePortListener("tcp4", "0.0.0.0:"+port)
+	if cfgReusePort {
+		listener, err = reuseport.NewReusablePortListener("tcp4", cfgAddr)
 	} else {
-		listener, err = net.Listen("tcp", "0.0.0.0:"+port)
+		listener, err = net.Listen("tcp", cfgAddr)
 	}
 	if err != nil {
 		fatalf("Setup listener failed: %s", err)
@@ -295,19 +297,17 @@ func dial(addr string, conn net.Conn, reader *bufio.Reader) net.Conn {
 func release(agent, conn net.Conn, reader *bufio.Reader) bool {
 	// Send bufio.Reader buffered data.
 	if n := reader.Buffered(); n > 0 {
-		err := agent.SetWriteDeadline(time.Now().Add(cfgDialTimeout))
+		data, err := reader.Peek(n)
 		if err != nil {
 			return false
 		}
-		var data []byte
-		if data, err = reader.Peek(n); err != nil {
+		if err = agent.SetWriteDeadline(time.Now().Add(cfgDialTimeout)); err != nil {
 			return false
 		}
 		if _, err = agent.Write(data); err != nil {
 			return false
 		}
-		err = agent.SetWriteDeadline(time.Time{})
-		if err != nil {
+		if err = agent.SetWriteDeadline(time.Time{}); err != nil {
 			return false
 		}
 	}

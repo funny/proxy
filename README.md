@@ -105,7 +105,7 @@ U2FsdGVkX19KIJ9OQJKT/yHGMrS+5SsBAAjetomptQ0=\n
 | 变量 | 用途 |
 |-----|----|
 | GW_SECRET | 解密地址用的秘钥，必须设置 |
-| GW_PORT | 网关服务器端口号，默认为0 |
+| GW_ADDR | 网关服务器地址，默认为0.0.0.0:0 |
 | GW_REUSE_PORT | 是否启用端口重用特性，值为1时表示启用，默认为0 |
 | GW_PPROF_ADDR | [`net/http/pprof`](https://golang.org/pkg/net/http/pprof/)所使用的地址，建议是内网地址，无值的时候不开启，默认无值 |
 | GW_DIAL_RETRY | 网关连接目标服务器的重试次数，默认为1 |
