@@ -12,6 +12,7 @@ before_install:
     - go get github.com/golang/lint/golint
     - go get github.com/mattn/goveralls
     - go get github.com/funny/utest
+    - go get github.com/funny/crypto/aes256cbc
 
 install:
     - go get -d -v ./... && go build -v ./...

@@ -89,9 +89,6 @@ U2FsdGVkX19KIJ9OQJKT/yHGMrS+5SsBAAjetomptQ0=\n
 1. 生成`Secret`，并保存在安全的文档中
 	 * 可以在线生成：https://lastpass.com/generatepassword.php
 2. 使用上述`Secret`部署网关
-    * 切勿将`Secret`写入客户端代码！
-    * 切勿将`Secret`写入客户端代码！
-    * 切勿将`Secret`写入客户端代码！
 3. 使用`AES`算法加密文本格式的后端地址，生成`base64`编码的密文
     * 可以在线生成：http://tool.oschina.net/encrypt
     * 也可以使用`openssl`命令生成，如：
@@ -103,6 +100,14 @@ U2FsdGVkX19KIJ9OQJKT/yHGMrS+5SsBAAjetomptQ0=\n
     U2FsdGVkX19KIJ9OQJKT/yHGMrS+5SsBAAjetomptQ0=
     ```
     _注：上述方式都会使用随机Salt，这也是建议的方式。其结果是每次加密得出的密文结果并不一样，但并不会影响解密_
+
+加密后的服务器地址通常应该在拉取服务器列表之类的场景中发送给客户端。
+
+客户端只有加密后的地址，不应该有`Secret`，重要的事情说三遍：
+
+* 切勿将`Secret`写入客户端代码！
+* 切勿将`Secret`写入客户端代码！
+* 切勿将`Secret`写入客户端代码！
 
 设置
 ====
