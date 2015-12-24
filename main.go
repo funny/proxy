@@ -24,7 +24,19 @@ import (
 var (
 	cfgSecret      []byte
 	cfgDialRetry   = 1
-	cfgDialTimeout = 2 * time.Second
+	cfgDialTimeout = 3 * time.Second
+
+	codeOK          = []byte("200")
+	codeBadReq      = []byte("400")
+	codeBadAddr     = []byte("401")
+	codeDialErr     = []byte("502")
+	codeDialTimeout = []byte("503")
+
+	errBadRequest = errors.New("Bad request")
+
+	testing     bool
+	gatewayAddr string
+	bufioPool   sync.Pool
 )
 
 func main() {
@@ -43,23 +55,27 @@ func main() {
 
 	sigTERM := make(chan os.Signal, 1)
 	sigINT := make(chan os.Signal, 1)
-
 	signal.Notify(sigTERM, syscall.SIGTERM)
 	signal.Notify(sigINT, syscall.SIGINT)
 
 	log.Printf("Gateway running, pid = %d", pid)
-	select {
-	case <-sigINT:
-	case <-sigTERM:
+	if !testing {
+		select {
+		case <-sigINT:
+		case <-sigTERM:
+		}
+		log.Printf("Gateway killed")
 	}
-	log.Printf("Gateway killed")
 }
 
 func config() {
+	var err error
+
 	cfgSecret = []byte(os.Getenv("GW_SECRET"))
+	log.Printf("GW_SECRET=%s", cfgSecret)
 
 	if v := os.Getenv("GW_DIAL_RETRY"); v != "" {
-		cfgDialRetry, err := strconv.Atoi(v)
+		cfgDialRetry, err = strconv.Atoi(v)
 		if err != nil {
 			log.Fatalf("GW_DIAL_RETRY - %s", err)
 		}
@@ -67,18 +83,20 @@ func config() {
 			cfgDialRetry = 1
 		}
 	}
+	log.Printf("GW_DIAL_RETRY=%d", cfgDialRetry)
 
 	var timeout int
 	if v := os.Getenv("GW_DIAL_TIMEOUT"); v != "" {
-		timeout, err := strconv.Atoi(v)
+		timeout, err = strconv.Atoi(v)
 		if err != nil {
 			log.Fatalf("GW_DIAL_TIMEOUT - %s", err)
 		}
-		if timeout == 0 {
-			timeout = 2
-		}
+	}
+	if timeout == 0 {
+		timeout = 3
 	}
 	cfgDialTimeout = time.Duration(timeout) * time.Second
+	log.Printf("GW_DIAL_TIMEOUT=%d", timeout)
 }
 
 func pprof() {
@@ -87,12 +105,12 @@ func pprof() {
 		if err != nil {
 			log.Fatalf("Setup pprof failed: %s", err)
 		}
-		log.Println("Setup pprof at %s", listener.Addr())
+		log.Printf("Setup pprof at %s", listener.Addr())
 		go http.Serve(listener, nil)
 	}
 }
 
-func gateway() (addr string) {
+func gateway() {
 	var err error
 	var listener net.Listener
 
@@ -101,21 +119,20 @@ func gateway() (addr string) {
 		port = "0"
 	}
 
-	addr = "0.0.0.0:" + port
 	if os.Getenv("GW_REUSE_PORT") == "1" {
-		listener, err = reuseport.NewReusablePortListener("tcp4", addr)
+		listener, err = reuseport.NewReusablePortListener("tcp4", "0.0.0.0:"+port)
 	} else {
-		listener, err = net.Listen("tcp", addr)
+		listener, err = net.Listen("tcp", "0.0.0.0:"+port)
 	}
 
 	if err != nil {
 		log.Fatalf("Setup listener failed: %s", err)
 	}
 
+	gatewayAddr = listener.Addr().String()
+	log.Printf("Setup gateway at %s", gatewayAddr)
+
 	go loop(listener)
-	addr = listener.Addr().String()
-	log.Printf("Setup gateway at %s", addr)
-	return
 }
 
 func loop(listener net.Listener) {
@@ -154,17 +171,6 @@ func accept(listener net.Listener) (net.Conn, error) {
 	}
 }
 
-var (
-	bufioPool sync.Pool
-
-	codeOK      = []byte("200")
-	codeBadReq  = []byte("400")
-	codeBadAddr = []byte("401")
-	codeDial    = []byte("502")
-
-	errBadRequest = errors.New("Bad request")
-)
-
 func handle(conn net.Conn) {
 	defer func() {
 		conn.Close()
@@ -195,7 +201,6 @@ func handle(conn net.Conn) {
 	var agent net.Conn
 	agent, err = dial(string(addr), conn, reader)
 	if err != nil {
-		conn.Write(codeDial)
 		return
 	}
 	defer agent.Close()
@@ -252,14 +257,10 @@ func handshakeBinary(conn net.Conn, reader *bufio.Reader) (addr []byte, err erro
 }
 
 func handshakeText(conn net.Conn, reader *bufio.Reader) (addr []byte, err error) {
-	base64, isPrefix, err := reader.ReadLine()
+	base64, err := reader.ReadSlice('\n')
 	if err != nil {
 		conn.Write(codeBadReq)
 		return nil, err
-	}
-	if isPrefix {
-		conn.Write(codeBadReq)
-		return nil, errBadRequest
 	}
 	if addr, err = aes256cbc.DecryptBase64(cfgSecret, base64); err != nil {
 		conn.Write(codeBadAddr)
@@ -271,16 +272,22 @@ func handshakeText(conn net.Conn, reader *bufio.Reader) (addr []byte, err error)
 func dial(addr string, conn net.Conn, reader *bufio.Reader) (agent net.Conn, err error) {
 	for i := 0; i < cfgDialRetry; i++ {
 		agent, err = net.DialTimeout("tcp", addr, cfgDialTimeout)
-		if err != nil {
-			if ne, ok := err.(net.Error); ok && ne.Timeout() {
-				continue
-			}
-			return nil, err
+		if err == nil {
+			break
 		}
-		break
+		if ne, ok := err.(net.Error); ok && ne.Timeout() {
+			continue
+		}
+		conn.Write(codeDialErr)
+		return nil, err
+	}
+	if err != nil {
+		conn.Write(codeDialTimeout)
+		return nil, err
 	}
 	if err = agentInit(agent, conn, reader); err != nil {
 		agent.Close()
+		conn.Write(codeDialErr)
 		return nil, err
 	}
 	return
