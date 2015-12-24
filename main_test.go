@@ -340,6 +340,35 @@ func Test_Accept(t *testing.T) {
 	}()
 }
 
+type TestReadWriteCloser struct {
+	closed bool
+}
+
+func (t *TestReadWriteCloser) Write(_ []byte) (int, error) {
+	panic("just panic")
+}
+
+func (t *TestReadWriteCloser) Read(_ []byte) (int, error) {
+	panic("just panic")
+}
+
+func (t *TestReadWriteCloser) Close() error {
+	t.closed = true
+	return nil
+}
+
+func Test_Handler(t *testing.T) {
+	handle(nil)
+}
+
+func Test_SafeCopy(t *testing.T) {
+	r := &TestReadWriteCloser{}
+	w := &TestReadWriteCloser{}
+	safeCopy(w, r)
+	utest.Assert(t, r.closed)
+	utest.Assert(t, w.closed)
+}
+
 func Test_Transfer(t *testing.T) {
 	clientAddrChan := make(chan string, 1)
 

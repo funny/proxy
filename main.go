@@ -52,9 +52,9 @@ func main() {
 
 	sigTERM := make(chan os.Signal, 1)
 	signal.Notify(sigTERM, syscall.SIGTERM)
-	log.Printf("Gateway running, pid = %d", pid)
+	printf("Gateway running, pid = %d", pid)
 	<-sigTERM
-	log.Printf("Gateway killed")
+	printf("Gateway killed")
 }
 
 func fatal(t string) {
@@ -71,10 +71,16 @@ func fatalf(t string, args ...interface{}) {
 	panic(fmt.Sprintf(t, args...))
 }
 
+func printf(t string, args ...interface{}) {
+	if !istest {
+		log.Printf(t, args...)
+	}
+}
+
 func config() {
 	if v := os.Getenv("GW_SECRET"); v != "" {
 		cfgSecret = []byte(os.Getenv("GW_SECRET"))
-		log.Printf("GW_SECRET=%s", cfgSecret)
+		printf("GW_SECRET=%s", cfgSecret)
 	} else {
 		fatal("GW_SECRET is required")
 	}
@@ -90,7 +96,7 @@ func config() {
 			cfgDialRetry = 1
 		}
 	}
-	log.Printf("GW_DIAL_RETRY=%d", cfgDialRetry)
+	printf("GW_DIAL_RETRY=%d", cfgDialRetry)
 
 	var timeout int
 	if v := os.Getenv("GW_DIAL_TIMEOUT"); v != "" {
@@ -103,14 +109,14 @@ func config() {
 		timeout = 3
 	}
 	cfgDialTimeout = time.Duration(timeout) * time.Second
-	log.Printf("GW_DIAL_TIMEOUT=%d", timeout)
+	printf("GW_DIAL_TIMEOUT=%d", timeout)
 
 	if v := os.Getenv("GW_PPROF_ADDR"); v != "" {
 		listener, err := net.Listen("tcp", v)
 		if err != nil {
 			fatalf("Setup pprof failed: %s", err)
 		}
-		log.Printf("Setup pprof at %s", listener.Addr())
+		printf("Setup pprof at %s", listener.Addr())
 		go http.Serve(listener, nil)
 	}
 }
@@ -135,7 +141,7 @@ func gateway() {
 	}
 
 	gatewayAddr = listener.Addr().String()
-	log.Printf("Setup gateway at %s", gatewayAddr)
+	printf("Setup gateway at %s", gatewayAddr)
 	go loop(listener)
 }
 
@@ -177,9 +183,11 @@ func accept(listener net.Listener) (net.Conn, error) {
 
 func handle(conn net.Conn) {
 	defer func() {
-		conn.Close()
+		if conn != nil {
+			conn.Close()
+		}
 		if err := recover(); err != nil {
-			log.Printf("Unhandled panic in connection handler: %v\n\n%s", err, debug.Stack())
+			printf("Unhandled panic in connection handler: %v\n\n%s", err, debug.Stack())
 		}
 	}()
 
@@ -326,10 +334,16 @@ func agentInit(agent, conn net.Conn, reader *bufio.Reader) (err error) {
 	return agent.SetWriteDeadline(time.Time{})
 }
 
-func safeCopy(dst io.Writer, src io.Reader) {
+func safeCopy(dst io.WriteCloser, src io.ReadCloser) {
 	defer func() {
+		if dst != nil {
+			dst.Close()
+		}
+		if src != nil {
+			src.Close()
+		}
 		if err := recover(); err != nil {
-			log.Printf("Unhandled panic in safe copy: %v\n\n%s", err, debug.Stack())
+			printf("Unhandled panic in safe copy: %v\n\n%s", err, debug.Stack())
 		}
 	}()
 	io.Copy(dst, src)
