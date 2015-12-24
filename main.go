@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -33,12 +32,6 @@ var (
 	codeBadAddr     = []byte("401")
 	codeDialErr     = []byte("502")
 	codeDialTimeout = []byte("504")
-
-	httpHead         = []byte("HTTP")
-	httpCipherOrigin = []byte("x-cipher-origin")
-	httpForwardedFor = []byte("x-forwarded-for")
-
-	errBadRequest = errors.New("Bad request")
 
 	isTest      bool
 	gatewayAddr string
@@ -140,7 +133,6 @@ func gateway() {
 	} else {
 		listener, err = net.Listen("tcp", "0.0.0.0:"+port)
 	}
-
 	if err != nil {
 		fatalf("Setup listener failed: %s", err)
 	}
