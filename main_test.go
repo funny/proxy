@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"io"
 	"math/rand"
 	"net"
@@ -15,7 +14,7 @@ import (
 )
 
 func init() {
-	istest = true
+	isTest = true
 	os.Setenv("GW_SECRET", "test")
 	os.Setenv("GW_DIAL_TIMEOUT", "1")
 	os.Setenv("GW_DIAL_RETRY", "1")
@@ -85,195 +84,6 @@ func Test_Config(t *testing.T) {
 	utest.EqualNow(t, cfgDialRetry, 1)
 	utest.EqualNow(t, int(cfgDialTimeout), int(3*time.Second))
 	cfgDialTimeout = time.Second
-}
-
-func Test_BadReq(t *testing.T) {
-	conn, err := net.Dial("tcp", gatewayAddr)
-	utest.IsNilNow(t, err)
-	defer conn.Close()
-
-	err = conn.(*net.TCPConn).CloseWrite()
-	utest.IsNilNow(t, err)
-
-	code := make([]byte, 3)
-	_, err = io.ReadFull(conn, code)
-	utest.IsNilNow(t, err)
-	utest.EqualNow(t, string(code), string(codeBadReq))
-}
-
-func Test_TextBadReq(t *testing.T) {
-	conn, err := net.Dial("tcp", gatewayAddr)
-	utest.IsNilNow(t, err)
-	defer conn.Close()
-
-	_, err = conn.Write([]byte("abc"))
-	utest.IsNilNow(t, err)
-
-	err = conn.(*net.TCPConn).CloseWrite()
-	utest.IsNilNow(t, err)
-
-	code := make([]byte, 3)
-	_, err = io.ReadFull(conn, code)
-	utest.IsNilNow(t, err)
-	utest.EqualNow(t, string(code), string(codeBadReq))
-}
-
-func Test_BinaryBadReq1(t *testing.T) {
-	conn, err := net.Dial("tcp", gatewayAddr)
-	utest.IsNilNow(t, err)
-	defer conn.Close()
-
-	_, err = conn.Write([]byte{0})
-	utest.IsNilNow(t, err)
-
-	err = conn.(*net.TCPConn).CloseWrite()
-	utest.IsNilNow(t, err)
-
-	code := make([]byte, 3)
-	_, err = io.ReadFull(conn, code)
-	utest.IsNilNow(t, err)
-	utest.EqualNow(t, string(code), string(codeBadReq))
-}
-
-func Test_BinaryBadReq2(t *testing.T) {
-	conn, err := net.Dial("tcp", gatewayAddr)
-	utest.IsNilNow(t, err)
-	defer conn.Close()
-
-	_, err = conn.Write([]byte{0, 3})
-	utest.IsNilNow(t, err)
-
-	err = conn.(*net.TCPConn).CloseWrite()
-	utest.IsNilNow(t, err)
-
-	code := make([]byte, 3)
-	_, err = io.ReadFull(conn, code)
-	utest.IsNilNow(t, err)
-	utest.EqualNow(t, string(code), string(codeBadReq))
-}
-
-func Test_TextBadAddr(t *testing.T) {
-	conn, err := net.Dial("tcp", gatewayAddr)
-	utest.IsNilNow(t, err)
-	defer conn.Close()
-
-	_, err = conn.Write([]byte("abc\n"))
-	utest.IsNilNow(t, err)
-
-	code := make([]byte, 3)
-	_, err = io.ReadFull(conn, code)
-	utest.IsNilNow(t, err)
-	utest.EqualNow(t, string(code), string(codeBadAddr))
-}
-
-func Test_BinaryBadAddr(t *testing.T) {
-	conn, err := net.Dial("tcp", gatewayAddr)
-	utest.IsNilNow(t, err)
-	defer conn.Close()
-
-	_, err = conn.Write([]byte{0, 1, 2})
-	utest.IsNilNow(t, err)
-
-	code := make([]byte, 3)
-	_, err = io.ReadFull(conn, code)
-	utest.IsNilNow(t, err)
-	utest.EqualNow(t, string(code), string(codeBadAddr))
-}
-
-func Test_CodeDialErr(t *testing.T) {
-	conn, err := net.Dial("tcp", gatewayAddr)
-	utest.IsNilNow(t, err)
-	defer conn.Close()
-
-	encryptedAddr, err := aes256cbc.EncryptString("test", "0.0.0.0:0")
-	utest.IsNilNow(t, err)
-
-	_, err = conn.Write([]byte(encryptedAddr))
-	utest.IsNilNow(t, err)
-	_, err = conn.Write([]byte("\n"))
-	utest.IsNilNow(t, err)
-
-	code := make([]byte, 3)
-	_, err = io.ReadFull(conn, code)
-	utest.IsNilNow(t, err)
-	utest.EqualNow(t, string(code), string(codeDialErr))
-}
-
-func Test_CodeDialTimeout(t *testing.T) {
-	oldTimeout := cfgDialTimeout
-	cfgDialTimeout = 10 * time.Microsecond
-	defer func() {
-		cfgDialTimeout = oldTimeout
-	}()
-
-	listener, err := net.Listen("tcp", "0.0.0.0:0")
-	utest.IsNilNow(t, err)
-	defer listener.Close()
-
-	conn, err := net.Dial("tcp", gatewayAddr)
-	utest.IsNilNow(t, err)
-	defer conn.Close()
-
-	encryptedAddr, err := aes256cbc.EncryptString("test", listener.Addr().String())
-	utest.IsNilNow(t, err)
-
-	_, err = conn.Write([]byte(encryptedAddr))
-	utest.IsNilNow(t, err)
-	_, err = conn.Write([]byte("\n"))
-	utest.IsNilNow(t, err)
-
-	code := make([]byte, 3)
-	_, err = io.ReadFull(conn, code)
-	utest.IsNilNow(t, err)
-	utest.EqualNow(t, string(code), string(codeDialTimeout))
-}
-
-func Test_BinaryOK(t *testing.T) {
-	listener, err := net.Listen("tcp", "0.0.0.0:0")
-	utest.IsNilNow(t, err)
-	defer listener.Close()
-
-	conn, err := net.Dial("tcp", gatewayAddr)
-	utest.IsNilNow(t, err)
-	defer conn.Close()
-
-	encryptedAddr, err := aes256cbc.Encrypt(cfgSecret, []byte(listener.Addr().String()))
-	utest.IsNilNow(t, err)
-
-	_, err = conn.Write([]byte{0x0})
-	utest.IsNilNow(t, err)
-	_, err = conn.Write([]byte{byte(len(encryptedAddr))})
-	utest.IsNilNow(t, err)
-	_, err = conn.Write([]byte(encryptedAddr))
-	utest.IsNilNow(t, err)
-
-	code := make([]byte, 3)
-	_, err = io.ReadFull(conn, code)
-	utest.IsNilNow(t, err)
-	utest.EqualNow(t, string(code), string(codeOK))
-}
-
-func Test_TextOK(t *testing.T) {
-	listener, err := net.Listen("tcp", "0.0.0.0:0")
-	utest.IsNilNow(t, err)
-	defer listener.Close()
-
-	conn, err := net.Dial("tcp", gatewayAddr)
-	utest.IsNilNow(t, err)
-	defer conn.Close()
-
-	encryptedAddr, err := aes256cbc.EncryptString(string(cfgSecret), listener.Addr().String())
-	utest.IsNilNow(t, err)
-
-	_, err = conn.Write([]byte(encryptedAddr))
-	utest.IsNilNow(t, err)
-	_, err = conn.Write([]byte("\n"))
-	utest.IsNilNow(t, err)
-
-	code := make([]byte, 3)
-	_, err = io.ReadFull(conn, code)
-	utest.IsNilNow(t, err)
-	utest.EqualNow(t, string(code), string(codeOK))
 }
 
 type TestError struct {
@@ -370,8 +180,6 @@ func Test_SafeCopy(t *testing.T) {
 }
 
 func Test_Transfer(t *testing.T) {
-	clientAddrChan := make(chan string, 1)
-
 	listener, err := net.Listen("tcp", "0.0.0.0:0")
 	utest.IsNilNow(t, err)
 	defer listener.Close()
@@ -381,20 +189,9 @@ func Test_Transfer(t *testing.T) {
 			if err != nil {
 				continue
 			}
-
 			go func() {
 				defer conn.Close()
-
-				reader := bufio.NewReader(conn)
-				n, err := reader.ReadByte()
-				utest.IsNilNow(t, err)
-
-				clientAddr := make([]byte, n)
-				_, err = io.ReadFull(reader, clientAddr)
-				utest.IsNilNow(t, err)
-				utest.EqualNow(t, <-clientAddrChan, string(clientAddr))
-
-				io.Copy(conn, reader)
+				io.Copy(conn, conn)
 			}()
 		}
 	}()
@@ -403,7 +200,6 @@ func Test_Transfer(t *testing.T) {
 		conn, err := net.Dial("tcp", gatewayAddr)
 		utest.IsNilNow(t, err)
 		defer conn.Close()
-		clientAddrChan <- conn.LocalAddr().String()
 
 		encryptedAddr, err := aes256cbc.EncryptString(string(cfgSecret), listener.Addr().String())
 		utest.IsNilNow(t, err)
