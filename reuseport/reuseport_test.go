@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"html"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 const (
@@ -53,8 +55,17 @@ func TestNewReusablePortListener(t *testing.T) {
 	serverOne.Start()
 	serverTwo.Start()
 
+	client := &http.Client{
+		Transport: &http.Transport{
+			Dial: func(netw, addr string) (net.Conn, error) {
+				return net.DialTimeout(netw, addr, time.Second*2)
+			},
+			ResponseHeaderTimeout: time.Second * 2,
+		},
+	}
+
 	// Server One — First Response
-	resp1, err := http.Get(serverOne.URL)
+	resp1, err := client.Get(serverOne.URL)
 	if err != nil {
 		panic(err)
 	}
@@ -68,7 +79,7 @@ func TestNewReusablePortListener(t *testing.T) {
 	}
 
 	// Server Two — First Response
-	resp2, err := http.Get(serverTwo.URL)
+	resp2, err := client.Get(serverTwo.URL)
 	if err != nil {
 		panic(err)
 	}
