@@ -13,6 +13,7 @@ before_install:
     - go get github.com/mattn/goveralls
     - go get github.com/funny/utest
     - go get github.com/funny/crypto/aes256cbc
+    - go get github.com/funny/reuseport
 
 install:
     - go get -d -v ./... && go build -v ./...
