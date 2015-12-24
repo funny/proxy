@@ -19,7 +19,7 @@ import (
 	"time"
 
 	"github.com/funny/crypto/aes256cbc"
-	"github.com/funny/gateway/reuseport"
+	"github.com/funny/reuseport"
 )
 
 var (
