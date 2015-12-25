@@ -209,7 +209,7 @@ func handle(conn net.Conn) {
 		return
 	}
 
-	agent := dial(string(addr), conn, reader)
+	agent := tunnel(string(addr), conn)
 	if agent == nil {
 		return
 	}
@@ -230,42 +230,6 @@ func handle(conn net.Conn) {
 }
 
 func handshake(conn net.Conn, reader *bufio.Reader) (addr []byte) {
-	firstByte, err := reader.ReadByte()
-	if err != nil {
-		conn.Write(codeBadReq)
-		return
-	}
-	switch firstByte {
-	case 0:
-		return handshakeBinary(conn, reader)
-	default:
-		if err = reader.UnreadByte(); err != nil {
-			return
-		}
-		return handshakeText(conn, reader)
-	}
-}
-
-func handshakeBinary(conn net.Conn, reader *bufio.Reader) (addr []byte) {
-	var buf [256]byte
-	n, err := reader.ReadByte()
-	if err != nil {
-		conn.Write(codeBadReq)
-		return nil
-	}
-	bin := buf[:n]
-	if _, err = io.ReadFull(reader, bin); err != nil {
-		conn.Write(codeBadReq)
-		return nil
-	}
-	if addr, err = aes256cbc.Decrypt(cfgSecret, bin); err != nil {
-		conn.Write(codeBadAddr)
-		return nil
-	}
-	return
-}
-
-func handshakeText(conn net.Conn, reader *bufio.Reader) (addr []byte) {
 	head, err := reader.ReadSlice('\n')
 	if err != nil {
 		conn.Write(codeBadReq)
@@ -278,7 +242,7 @@ func handshakeText(conn net.Conn, reader *bufio.Reader) (addr []byte) {
 	return
 }
 
-func dial(addr string, conn net.Conn, reader *bufio.Reader) net.Conn {
+func tunnel(addr string, conn net.Conn) net.Conn {
 	for i := 0; i < cfgDialRetry; i++ {
 		agent, err := net.DialTimeout("tcp", addr, cfgDialTimeout)
 		if err == nil {
