@@ -21,11 +21,21 @@
 4. 误：~~高性能，网关内部初始化好连接后，使用[`sendfile`](https://www.ibm.com/developerworks/cn/linux/l-cn-zerocopy2/)进行零拷贝的数据传输~~
 5. 端口重用，利用高版本Linux内核的[`reuseport`](http://www.blogjava.net/yongboy/archive/2015/02/12/422893.html)机制，可以开多个网关进程守候同一个端口，以提高多核利用率
 
-注：sendfile系统调用只能用于文件对socket，要做到socket对socket的零拷贝需要用到splice系统调用。
+关于零拷贝技术：
+
+当前Go内置的`io.Copy`最终会调用到`net.TCPConn.ReadFrom()`，`ReadFrom()`内部会尝试对`os.File`使用`sendfile`，但如果传入的是一个socket，最终会回退成普通的读取发送模式，所以目前无法通过`io.Copy()`做到零拷贝。
+
+要做到socket对socket的零拷贝，需要用到`splice`系统调用，因为Go的调度模式决定了使用`splice`必须和内置的`netpoll`交互，否则Goroutine会因为IO阻塞独占调度线程。
+
+已经有人对Go的`net.TCPConn.ReadFrom()`做了改进，当发现来源是一个socket时，内部转为`splice`调用，但这个补丁还未被合并。
 
 相关链接：
+
 * https://github.com/golang/go/issues/10948
 * https://github.com/golang/go/compare/master...philhofer:net-splice
+
+更多关于零拷贝技术的信息可以参考这篇文章：
+
 * https://www.ibm.com/developerworks/cn/linux/l-cn-zerocopy2/
 
 协议
