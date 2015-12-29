@@ -6,7 +6,7 @@
 
 本项目是一个基于[`xindong/frontd`](https://github.com/xindong/frontd)重制的通用网关程序。
 
-本网关只有TCP或HTTP流量转发功能，负责为每个客户端连接建立一个后端连接进行流量转发。
+本网关只有TCP流量转发功能，负责为每个客户端连接建立一个后端连接进行流量转发。
 
 本网关有以下使用价值：
 
@@ -23,9 +23,11 @@
 
 关于零拷贝技术：
 
-当前Go内置的`io.Copy`最终会调用到`net.TCPConn.ReadFrom()`，`ReadFrom()`内部会尝试对`os.File`使用`sendfile`，但如果传入的是一个socket，最终会回退成普通的读取发送模式，所以目前无法通过`io.Copy()`做到零拷贝。
+当前Go内置的`io.Copy`最终会调用到`net.TCPConn.ReadFrom()`，在`linux`平台上`net.TCPConn.ReadFrom()`会尝试对`os.File`使用`sendfile()`系统调用。
 
-要做到socket对socket的零拷贝，需要用到`splice`系统调用，因为Go的调度模式决定了使用`splice`必须和内置的`netpoll`交互，否则Goroutine会因为IO阻塞独占调度线程。
+但如果传入的是一个`net.Conn`，最终会回退成普通的读取发送模式，因为`sendfile()`只支持文件对socket的调用形式，所以目前无法通过`io.Copy()`做到零拷贝。
+
+要做到socket对socket的零拷贝，需要用到`splice`系统调用，但因为Go的`CSP`模型决定了使用`splice`必须和内置的`netpoll`交互，否则Goroutine会因为IO阻塞独占调度线程。
 
 已经有人对Go的`net.TCPConn.ReadFrom()`做了改进，当发现来源是一个socket时，内部转为`splice`调用，但这个补丁还未被合并。
 
@@ -33,6 +35,8 @@
 
 * https://github.com/golang/go/issues/10948
 * https://github.com/golang/go/compare/master...philhofer:net-splice
+
+经过实际测试，这个补丁中的`fSpliceMore`标记要去掉，否则会导致socket像启用了TCP_CORK选项一样拥塞发送，对于首发小消息的游戏网关来说，会导致持续性的200ms延迟。
 
 更多关于零拷贝技术的信息可以参考这篇文章：
 
