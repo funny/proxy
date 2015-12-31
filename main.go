@@ -302,9 +302,7 @@ func release(agent, conn net.Conn, reader *bufio.Reader) bool {
 }
 
 func safeCopy(dst io.WriteCloser, src io.ReadCloser) {
-	buf := bufferPool.Get().([]byte)
 	defer func() {
-		bufferPool.Put(buf)
 		if dst != nil {
 			dst.Close()
 		}
@@ -315,5 +313,5 @@ func safeCopy(dst io.WriteCloser, src io.ReadCloser) {
 			printf("Unhandled panic in safe copy: %v\n\n%s", err, debug.Stack())
 		}
 	}()
-	io.CopyBuffer(dst, src, buf)
+	copy(dst, src)
 }

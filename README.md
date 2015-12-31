@@ -128,7 +128,7 @@ U2FsdGVkX19KIJ9OQJKT/yHGMrS+5SsBAAjetomptQ0=\n
 | GW_PPROF_ADDR | [`net/http/pprof`](https://golang.org/pkg/net/http/pprof/)所使用的地址，建议是内网地址，无值的时候不开启，默认无值 |
 | GW_DIAL_RETRY | 网关连接目标服务器的重试次数，默认为1 |
 | GW_DIAL_TIMEOUT | 网关每次连接目标服务器的超时时间，单位是秒，默认为3 |
-| GW_BUFF_SIZE | 用来进行io.CopyBuffer的缓冲大小 |
+| GW_BUFF_SIZE | 用来进行[`io.CopyBuffer`](https://golang.org/pkg/io/#CopyBuffer)的缓冲大小，只支持Go 1.5以上版本 |
 
 网关启动后，会在工作目录下生成一个`gateway.pid`文件记录进程id，可以用以下命令安全退出网关：
 
