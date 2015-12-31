@@ -16,11 +16,11 @@ before_install:
     - go get github.com/funny/reuseport
 
 install:
-    - go get -d -v ./... && go build -v ./...
+    - go get -d -v . && go build -v .
 
 script:
-    - go vet -x ./...
-    - $HOME/gopath/bin/golint ./...
+    - go vet -x .
+    - $HOME/gopath/bin/golint .
     - go test -v -covermode=count -coverprofile=profile.cov
 
 after_script:
