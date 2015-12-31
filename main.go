@@ -243,10 +243,7 @@ func handle(conn net.Conn) {
 	}
 
 	go safeCopy(conn, agent)
-
-	buf := bufferPool.Get().([]byte)
-	defer bufferPool.Put(buf)
-	io.CopyBuffer(agent, conn, buf)
+	copy(agent, conn)
 }
 
 func handshake(conn net.Conn, reader *bufio.Reader) (addr []byte) {
