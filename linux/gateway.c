@@ -30,8 +30,8 @@ const char *HS_DIAL_TIMEOUT = "504"; // connect to backend timeout
 struct gw_hs_state {
 	char buf[HS_BUFF_SIZE + 1];
 	const char *code;
-	int  readed;
-	int  writed;
+	int readed;
+	int writed;
 };
 
 struct gw_conn {
@@ -62,7 +62,7 @@ gw_add_conn(int pd, int fd, struct gw_conn *del_poll[]) {
 		return NULL;
 	}
 	opt = PIPE_SIZE;
-    if (setsockopt (fd, SOL_SOCKET, SO_SNDBUF, &opt, sizeof(opt)) != 0) {
+	if (setsockopt (fd, SOL_SOCKET, SO_SNDBUF, &opt, sizeof(opt)) != 0) {
 		fprintf(stderr, "Can't set socket send buffer - %s\n", strerror(errno));
 		return NULL;
 	}
