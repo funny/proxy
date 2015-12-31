@@ -18,8 +18,7 @@
 1. 易接入，只需要对客户端做小量修改即可接入，不需要修改已又通讯协议
 2. 可扩展，可以任意多开水平扩展以实现负载均衡和高可
 3. 零配置，运维人员无需手工进行后端服务器列表配置
-4. 误：~~高性能，网关内部初始化好连接后，使用[`sendfile`](https://www.ibm.com/developerworks/cn/linux/l-cn-zerocopy2/)进行零拷贝的数据传输~~
-5. 端口重用，利用高版本Linux内核的[`reuseport`](http://www.blogjava.net/yongboy/archive/2015/02/12/422893.html)机制，可以开多个网关进程守候同一个端口，以提高多核利用率
+4. 端口重用，利用高版本Linux内核的[`reuseport`](http://www.blogjava.net/yongboy/archive/2015/02/12/422893.html)机制，可以开多个网关进程守候同一个端口，以提高多核利用率
 
 关于零拷贝技术：
 
@@ -41,6 +40,10 @@
 更多关于零拷贝技术的信息可以参考这篇文章：
 
 * https://www.ibm.com/developerworks/cn/linux/l-cn-zerocopy2/
+
+针对Linux系统制作的epoll + splice版本的Gateway（仅提供测试学习之用）：
+
+* https://github.com/funny/gateway/tree/master/linux
 
 协议
 ====
