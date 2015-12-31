@@ -158,14 +158,7 @@ gw_clean_del_poll(int pd, struct gw_conn *del_poll[]) {
 }
 
 static int
-gw_listen(int pd, char *addr) {
-	// parse address
-	char *clone = strchr(addr, ':');
-	if (clone == NULL) {
-		return -1;
-	}
-	addr[clone - addr] = '\0';
-	
+gw_listen(char *addr) {
 	int lsn = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK , 0);
 	if (lsn < 0) {
 		fprintf(stderr, "Can't create listener - %s\n", strerror(errno));
@@ -179,6 +172,12 @@ gw_listen(int pd, char *addr) {
 		return -1;
 	}
 	
+	// parse address
+	char *clone = strchr(addr, ':');
+	if (clone == NULL) {
+		return -1;
+	}
+	addr[clone - addr] = '\0';
 	struct sockaddr_in lsn_addr;
 	lsn_addr.sin_family = AF_INET;
 	lsn_addr.sin_port  = htons(atoi(clone + 1));
@@ -200,15 +199,6 @@ gw_listen(int pd, char *addr) {
 	if (getsockname(lsn, (struct sockaddr *)&lsn_addr, &addr_len) != 0) {
 		close(lsn);
 		fprintf(stderr, "Can't get listener address - %s\n", strerror(errno));
-		return -1;
-	}
-	
-	struct epoll_event event;
-	event.data.ptr = NULL;
-	event.events = EPOLLIN | EPOLLET;
-	if (epoll_ctl(pd, EPOLL_CTL_ADD, lsn, &event) != 0) {
-		close(lsn);
-		fprintf(stderr, "Can't add listener into epoll - %s\n", strerror(errno));
 		return -1;
 	}
 	
@@ -294,6 +284,13 @@ gw_handshake_in(int pd, struct gw_conn *conn, char *secret) {
 		return;
 	}
 	
+	// create a nonblock TCP socket
+	int fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
+	if (fd < 0) {
+		state->code = HS_DIAL_ERR;
+		return;
+	}
+	
 	// parse address
 	char *clone = strchr(state->buf, ':');
 	if (clone == NULL) {
@@ -307,13 +304,6 @@ gw_handshake_in(int pd, struct gw_conn *conn, char *secret) {
 	addr.sin_addr.s_addr = inet_addr(state->buf);
 	socklen_t addr_len = sizeof(struct sockaddr_in);
 
-	// create a nonblock TCP socket
-	int fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
-	if (fd < 0) {
-		state->code = HS_DIAL_ERR;
-		return;
-	}
-	
 	// connect to backend
 	int err = connect(fd, &addr, addr_len);
 	if (err < 0 && errno != EINPROGRESS) {
@@ -419,10 +409,10 @@ gw_splice_out(struct gw_conn *conn) {
 
 static void
 gw_loop(int pd, int lsn, char *secret) {
+	// Add the connections that want to close into del_poll and close them at the end of event frame. 
+	// Because the connections may be referenced in current event frame.
 	struct gw_conn *del_poll[MAX_EVENTS];
-	for (int i = 0; i < MAX_EVENTS; i ++) {
-		del_poll[i] = NULL;
-	}
+	bzero(del_poll, sizeof(struct gw_conn *) * MAX_EVENTS);
 	
 	struct epoll_event readys[MAX_EVENTS];
 	for (;;) {
@@ -519,34 +509,67 @@ gw_loop(int pd, int lsn, char *secret) {
 				}
 			}
 		}
+		// close bad connections
 		gw_clean_del_poll(pd, del_poll);
 	}
 }
 
 int
 main(int argc, char *argv[]) {
+	// the passphrase for AES256-CBC decrypt
 	char *secret = getenv("GW_SECRET");
 	if (secret == NULL) {
 		fprintf(stderr, "Missing GW_SECRET environment variable\n");
 		return -1;
 	}
-	
+
+	// create a nonblock listener
 	char *addr = getenv("GW_ADDR");
 	if (addr == NULL) {
 		addr = strdup("0.0.0.0:0");
 	}
+	int lsn = gw_listen(addr);
+	if (lsn < 0) {
+		free(addr);
+		return -1;
+	}
 	
 	int pd = epoll_create(10);
 	if (pd < 0) {
+		free(addr);
+		close(lsn);
 		fprintf(stderr, "Can't create epoll - %s\n", strerror(errno));
 		return -1;
 	}
-	
-	int lsn = gw_listen(pd, addr);
-	if (lsn < 0) {
+
+	// listener event
+	struct epoll_event event;
+	event.data.ptr = NULL;
+	event.events = EPOLLIN | EPOLLET;
+	if (epoll_ctl(pd, EPOLL_CTL_ADD, lsn, &event) != 0) {
+		free(addr);
+		close(lsn);
+		fprintf(stderr, "Can't add listener into epoll - %s\n", strerror(errno));
 		return -1;
 	}
 	
+	FILE *pid_file = fopen("gateway.pid", "w");
+	if (pid_file == NULL || fprintf(pid_file, "%d", getpid()) < 0) {
+		free(addr);
+		close(lsn);
+		close(pd);
+		fprintf(stderr, "Can't record process ID - %s\n", strerror(errno));
+		return -1;
+	}
+	fclose(pid_file);
+	
+	// event loop
 	gw_loop(pd, lsn, secret);
+	
+	// dispose things
+	free(addr);
+	close(lsn);
+	close(pd);
+	remove("gateway.pid");
 	return 0;
 }

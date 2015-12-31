@@ -139,6 +139,7 @@ kill `cat gateway.pid`
 TODO
 ====
 
+* 连接存活检查
 * 提供客户端接入代码
 * 运行状况统计
 * 支持consul
