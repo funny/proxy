@@ -21,13 +21,15 @@ import (
 	"github.com/funny/reuseport"
 )
 
+const miniBufferSize = 1024
+
 var (
-	cfgSecret            []byte
-	cfgAddr              = "0.0.0.0:0"
-	cfgReusePort         = false
-	cfgDialRetry         = 1
-	cfgDialTimeout       = 3 * time.Second
-	cfgMaxHTTPHeaderSize = 8096
+	cfgSecret      []byte
+	cfgAddr        = "0.0.0.0:0"
+	cfgReusePort   = false
+	cfgDialRetry   = 1
+	cfgDialTimeout = 3 * time.Second
+	cfgBufferSize  = 8 * 1024
 
 	codeOK          = []byte("200")
 	codeBadReq      = []byte("400")
@@ -38,6 +40,7 @@ var (
 	isTest      bool
 	gatewayAddr string
 	bufioPool   sync.Pool
+	bufferPool  sync.Pool
 )
 
 func main() {
@@ -123,6 +126,20 @@ func config() {
 		}
 		printf("Setup pprof at %s", listener.Addr())
 		go http.Serve(listener, nil)
+	}
+
+	if v := os.Getenv("GW_BUFF_SIZE"); v != "" {
+		cfgBufferSize, err = strconv.Atoi(v)
+		if err != nil {
+			fatalf("GW_BUFF_SIZE - %s", err)
+		}
+		if cfgBufferSize < miniBufferSize {
+			cfgBufferSize = miniBufferSize
+		}
+	}
+	printf("GW_BUFF_SIZE=%d", cfgBufferSize)
+	bufferPool.New = func() interface{} {
+		return make([]byte, cfgBufferSize)
 	}
 }
 
@@ -226,7 +243,10 @@ func handle(conn net.Conn) {
 	}
 
 	go safeCopy(conn, agent)
-	io.Copy(agent, conn)
+
+	buf := bufferPool.Get().([]byte)
+	defer bufferPool.Put(buf)
+	io.CopyBuffer(agent, conn, buf)
 }
 
 func handshake(conn net.Conn, reader *bufio.Reader) (addr []byte) {
@@ -282,7 +302,9 @@ func release(agent, conn net.Conn, reader *bufio.Reader) bool {
 }
 
 func safeCopy(dst io.WriteCloser, src io.ReadCloser) {
+	buf := bufferPool.Get().([]byte)
 	defer func() {
+		bufferPool.Put(buf)
 		if dst != nil {
 			dst.Close()
 		}
@@ -293,5 +315,5 @@ func safeCopy(dst io.WriteCloser, src io.ReadCloser) {
 			printf("Unhandled panic in safe copy: %v\n\n%s", err, debug.Stack())
 		}
 	}()
-	io.Copy(dst, src)
+	io.CopyBuffer(dst, src, buf)
 }

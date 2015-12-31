@@ -20,6 +20,7 @@ func init() {
 	os.Setenv("GW_DIAL_TIMEOUT", "1")
 	os.Setenv("GW_DIAL_RETRY", "1")
 	os.Setenv("GW_PPROF_ADDR", "0.0.0.0:0")
+	os.Setenv("GW_BUFF_SIZE", "32000")
 	go main()
 	time.Sleep(time.Second * 2)
 }
@@ -81,6 +82,18 @@ func Test_Config(t *testing.T) {
 		config()
 	}()
 	os.Setenv("GW_PPROF_ADDR", "")
+
+	os.Setenv("GW_BUFF_SIZE", "abc")
+	func() {
+		defer func() {
+			err := recover()
+			utest.NotNilNow(t, err)
+			utest.Assert(t, strings.Contains(err.(string), "GW_BUFF_SIZE"))
+		}()
+		config()
+	}()
+	os.Setenv("GW_BUFF_SIZE", "0")
+	cfgBufferSize = 32 * 1024
 
 	utest.EqualNow(t, cfgDialRetry, 1)
 	utest.EqualNow(t, int(cfgDialTimeout), int(3*time.Second))
