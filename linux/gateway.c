@@ -533,8 +533,7 @@ main(int argc, char *argv[]) {
 	
 	char *addr = getenv("GW_ADDR");
 	if (addr == NULL) {
-		addr = malloc(10); 
-		strcpy(addr, "0.0.0.0:0");
+		addr = strdup("0.0.0.0:0");
 	}
 	
 	int pd = epoll_create(10);
