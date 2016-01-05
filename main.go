@@ -1,9 +1,8 @@
 package main
 
 import (
-	"bufio"
+	"bytes"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"log"
 	"net"
@@ -39,7 +38,6 @@ var (
 
 	isTest      bool
 	gatewayAddr string
-	bufioPool   sync.Pool
 	bufferPool  sync.Pool
 )
 
@@ -199,71 +197,63 @@ func accept(listener net.Listener) (net.Conn, error) {
 
 func handle(conn net.Conn) {
 	defer func() {
-		if conn != nil {
-			conn.Close()
-		}
+		conn.Close()
 		if err := recover(); err != nil {
 			printf("Unhandled panic in connection handler: %v\n\n%s", err, debug.Stack())
 		}
 	}()
 
-	released := false
-	reader, ok := bufioPool.Get().(*bufio.Reader)
-	if ok {
-		reader.Reset(conn)
-	} else {
-		reader = bufio.NewReader(conn)
-	}
-	defer func() {
-		if !released {
-			reader.Reset(nil)
-			bufioPool.Put(reader)
-		}
-	}()
-
-	addr := handshake(conn, reader)
-	if addr == nil {
-		return
-	}
-
-	agent := tunnel(string(addr), conn)
+	agent := handshake(conn)
 	if agent == nil {
 		return
 	}
 	defer agent.Close()
 
-	released = release(agent, conn, reader)
-	if !released {
-		conn.Write(codeDialErr)
-		return
-	}
-
-	if _, err := conn.Write(codeOK); err != nil {
-		return
-	}
-
-	go safeCopy(conn, agent)
+	go func() {
+		defer func() {
+			agent.Close()
+			conn.Close()
+			if err := recover(); err != nil {
+				printf("Unhandled panic in connection handler: %v\n\n%s", err, debug.Stack())
+			}
+		}()
+		copy(conn, agent)
+	}()
 	copy(agent, conn)
 }
 
-func handshake(conn net.Conn, reader *bufio.Reader) (addr []byte) {
-	head, err := reader.ReadSlice('\n')
-	if err != nil {
-		conn.Write(codeBadReq)
-		return
-	}
-	if addr, err = aes256cbc.DecryptBase64(cfgSecret, head); err != nil {
-		conn.Write(codeBadAddr)
-		return
-	}
-	return
-}
+func handshake(conn net.Conn) (agent net.Conn) {
+	var addr []byte
+	var remain []byte
 
-func tunnel(addr string, conn net.Conn) net.Conn {
+	// read and decrypt target server address
+	var buf [256]byte
+	var err error
+	for n, nn := 0, 0; n < len(buf); n += nn {
+		nn, err = conn.Read(buf[n:])
+		if err != nil {
+			conn.Write(codeBadReq)
+			return
+		}
+		if i := bytes.IndexByte(buf[n:n+nn], '\n'); i >= 0 {
+			if addr, err = aes256cbc.DecryptBase64(cfgSecret, buf[:n+i]); err != nil {
+				conn.Write(codeBadAddr)
+				return nil
+			}
+			remain = buf[n+i+1 : n+nn]
+			break
+		}
+	}
+	if addr == nil {
+		conn.Write(codeBadReq)
+		return nil
+	}
+
+	// dial to target server
 	for i := 0; i < cfgDialRetry; i++ {
-		agent, err := net.DialTimeout("tcp", addr, cfgDialTimeout)
+		agent, err = net.DialTimeout("tcp", string(addr), cfgDialTimeout)
 		if err == nil {
-			return agent
+			break
 		}
 		if ne, ok := err.(net.Error); ok && ne.Timeout() {
 			continue
@@ -271,44 +261,23 @@ func tunnel(addr string, conn net.Conn) net.Conn {
 		conn.Write(codeDialErr)
 		return nil
 	}
-	conn.Write(codeDialTimeout)
-	return nil
-}
+	if err != nil {
+		conn.Write(codeDialTimeout)
+		return nil
+	}
 
-func release(agent, conn net.Conn, reader *bufio.Reader) bool {
-	// Send bufio.Reader buffered data.
-	if n := reader.Buffered(); n > 0 {
-		data, err := reader.Peek(n)
-		if err != nil {
-			return false
-		}
-		if err = agent.SetWriteDeadline(time.Now().Add(cfgDialTimeout)); err != nil {
-			return false
-		}
-		if _, err = agent.Write(data); err != nil {
-			return false
-		}
-		if err = agent.SetWriteDeadline(time.Time{}); err != nil {
-			return false
+	// send succeed code
+	if _, err = conn.Write(codeOK); err != nil {
+		agent.Close()
+		return nil
+	}
+
+	// send remainder data in buffer
+	if len(remain) > 0 {
+		if _, err = agent.Write(remain); err != nil {
+			agent.Close()
+			return nil
 		}
 	}
-	// Release the reader.
-	reader.Reset(nil)
-	bufioPool.Put(reader)
-	return true
-}
-
-func safeCopy(dst io.WriteCloser, src io.ReadCloser) {
-	defer func() {
-		if dst != nil {
-			dst.Close()
-		}
-		if src != nil {
-			src.Close()
-		}
-		if err := recover(); err != nil {
-			printf("Unhandled panic in safe copy: %v\n\n%s", err, debug.Stack())
-		}
-	}()
-	copy(dst, src)
+	return
 }

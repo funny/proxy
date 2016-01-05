@@ -310,18 +310,6 @@ func (t *TestReadWriteCloser) Close() error {
 	return nil
 }
 
-func Test_Handler(t *testing.T) {
-	handle(nil)
-}
-
-func Test_SafeCopy(t *testing.T) {
-	r := &TestReadWriteCloser{}
-	w := &TestReadWriteCloser{}
-	safeCopy(w, r)
-	utest.Assert(t, r.closed)
-	utest.Assert(t, w.closed)
-}
-
 func Test_Transfer(t *testing.T) {
 	listener, err := net.Listen("tcp", "0.0.0.0:0")
 	utest.IsNilNow(t, err)
