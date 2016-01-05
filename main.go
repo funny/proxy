@@ -227,7 +227,7 @@ func handshake(conn net.Conn) (agent net.Conn) {
 	var remain []byte
 
 	// read and decrypt target server address
-	var buf [256]byte
+	var buf [64]byte
 	var err error
 	for n, nn := 0, 0; n < len(buf); n += nn {
 		nn, err = conn.Read(buf[n:])
