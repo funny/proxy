@@ -8,7 +8,7 @@
 
 本网关只有TCP流量转发功能，负责为每个客户端连接建立一个后端连接进行流量转发。
 
-本网关有以下使用价值：
+本网关有以下用途：
 
 1. 避免应用服务器直接暴露到公网
 2. 提高故障转移的效率
@@ -19,31 +19,6 @@
 2. 可扩展，可以任意多开水平扩展以实现负载均衡和高可
 3. 零配置，运维人员无需手工进行后端服务器列表配置
 4. 端口重用，利用高版本Linux内核的[`reuseport`](http://www.blogjava.net/yongboy/archive/2015/02/12/422893.html)机制，可以开多个网关进程守候同一个端口，以提高多核利用率
-
-关于零拷贝技术：
-
-当前Go内置的`io.Copy`最终会调用到`net.TCPConn.ReadFrom()`，在`linux`平台上`net.TCPConn.ReadFrom()`会尝试对`os.File`使用`sendfile()`系统调用。
-
-但如果传入的是一个`net.Conn`，最终会回退成普通的读取发送模式，因为`sendfile()`只支持文件对socket的调用形式，所以目前无法通过`io.Copy()`做到零拷贝。
-
-要做到socket对socket的零拷贝，需要用到`splice`系统调用，但因为Go的`CSP`模型决定了使用`splice`必须和内置的`netpoll`交互，否则Goroutine会因为IO阻塞独占调度线程。
-
-已经有人对Go的`net.TCPConn.ReadFrom()`做了改进，当发现来源是一个socket时，内部转为`splice`调用，但这个补丁还未被合并。
-
-相关链接：
-
-* https://github.com/golang/go/issues/10948
-* https://github.com/golang/go/compare/master...philhofer:net-splice
-
-经过实际测试，这个补丁中的`fSpliceMore`标记要去掉，否则会导致socket像启用了TCP_CORK选项一样拥塞发送，对于首发小消息的游戏网关来说，会导致持续性的200ms延迟。
-
-更多关于零拷贝技术的信息可以参考这篇文章：
-
-* https://www.ibm.com/developerworks/cn/linux/l-cn-zerocopy2/
-
-针对Linux系统制作的epoll + splice版本的Gateway（仅提供测试学习之用）：
-
-* https://github.com/funny/gateway/tree/master/linux
 
 协议
 ====
@@ -135,6 +110,37 @@ U2FsdGVkX19KIJ9OQJKT/yHGMrS+5SsBAAjetomptQ0=\n
 ```
 kill `cat gateway.pid`
 ```
+
+附录
+====
+
+零拷贝技术
+--------
+
+因为此网关程序的唯一功能就是转发流量，所以如果可以利用Linux平台的“零拷贝”技术，无疑可以显著的提升网关的效率。
+
+当前Go内置的`io.Copy`最终会调用到`net.TCPConn.ReadFrom()`，在Linux平台上`net.TCPConn.ReadFrom()`会尝试对`os.File`使用`sendfile()`系统调用。
+
+但如果传入的是一个`net.Conn`，最终会回退成普通的读取发送模式，因为`sendfile()`只支持文件对socket的调用形式，所以目前无法通过`io.Copy()`做到零拷贝。
+
+要做到socket对socket的零拷贝，需要用到`splice`系统调用，但因为Go的`CSP`模型决定了使用`splice`必须和内置的`netpoll`交互，否则Goroutine会因为IO阻塞独占调度线程。
+
+已经有开发者给Go提交了一个补丁，对`net.TCPConn.ReadFrom()`做了改进，当发现来源是一个socket时，内部转为`splice`调用，但这个补丁还未被合并。
+
+相关链接：
+
+* https://github.com/golang/go/issues/10948
+* https://github.com/golang/go/compare/master...philhofer:net-splice
+
+经过实际测试，这个补丁中的`fSpliceMore`标记要去掉，否则会导致socket像启用了TCP_CORK选项一样拥塞发送，对于收发小消息的游戏网关来说，会导致持续性的200ms延迟。
+
+更多关于零拷贝技术的信息可以参考这篇文章：
+
+* https://www.ibm.com/developerworks/cn/linux/l-cn-zerocopy2/
+
+以下是针对Linux系统制作的epoll + splice版本的网关程序（仅提供测试学习之用）：
+
+* https://github.com/funny/gateway/tree/master/linux
 
 TODO
 ====
