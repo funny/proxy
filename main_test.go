@@ -69,7 +69,7 @@ func Test_Fatals(t *testing.T) {
 			utest.NotNilNow(t, err)
 			utest.Assert(t, strings.Contains(err.(string), "Setup listener failed"))
 		}()
-		start()
+		main()
 	}()
 
 	// bad gateway address with reuse port
