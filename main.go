@@ -74,29 +74,42 @@ func main() {
 		if err != nil {
 			fatalf("Setup pprof failed: %s", err)
 		}
-		printf("Setup pprof at %s", listener.Addr())
+		cfgPprofAddr = listener.Addr().String()
 		go http.Serve(listener, nil)
+	} else {
+		cfgPprofAddr = "disable"
 	}
 
 	pid := syscall.Getpid()
 	if err := ioutil.WriteFile("gateway.pid", []byte(strconv.Itoa(pid)), 0644); err != nil {
-		log.Fatalf("Can't write pid file: %s", err)
+		fatalf("Can't write pid file: %s", err)
 	}
 	defer os.Remove("gateway.pid")
 
 	start()
 
-	printf("Gateway address: %s", cfgGatewayAddr)
-	printf("Reuse port: %v", cfgReusePort)
-	printf("Dial retry: %d", cfgDialRetry)
-	printf("Dial timeout: %s", time.Duration(cfgDialTimeout))
-	printf("Buffer size: %d", cfgBufferSize)
-	printf("Passphrase: %s", cfgSecret)
+	printf(`Gateway running
+Address:      %s
+Reuse port:   %v
+Dial retry:   %d
+Dial timeout: %s
+Buffer size:  %d
+Passphrase:   %s
+Profiling:    %s
+Process ID:   %d`,
+		cfgGatewayAddr,
+		cfgReusePort,
+		cfgDialRetry,
+		time.Duration(cfgDialTimeout),
+		cfgBufferSize,
+		cfgSecret,
+		cfgPprofAddr,
+		pid)
 
-	sigTERM := make(chan os.Signal, 1)
-	signal.Notify(sigTERM, syscall.SIGTERM)
-	printf("Gateway running, pid = %d", pid)
-	<-sigTERM
+	exitChan := make(chan os.Signal, 1)
+	signal.Notify(exitChan, syscall.SIGTERM)
+	signal.Notify(exitChan, syscall.SIGINT)
+	<-exitChan
 	printf("Gateway killed")
 }
 
@@ -134,7 +147,6 @@ func start() {
 	}
 
 	cfgGatewayAddr = listener.Addr().String()
-	printf("Setup gateway at %s", cfgGatewayAddr)
 	go loop(listener)
 }
 
@@ -178,7 +190,7 @@ func handle(conn net.Conn) {
 	defer func() {
 		conn.Close()
 		if err := recover(); err != nil {
-			printf("Unhandled panic in connection handler: %v\n\n%s", err, debug.Stack())
+			printf("panic: %v\n\n%s", err, debug.Stack())
 		}
 	}()
 
@@ -193,7 +205,7 @@ func handle(conn net.Conn) {
 			agent.Close()
 			conn.Close()
 			if err := recover(); err != nil {
-				printf("Unhandled panic in connection handler: %v\n\n%s", err, debug.Stack())
+				printf("panic: %v\n\n%s", err, debug.Stack())
 			}
 		}()
 		copy(conn, agent)
