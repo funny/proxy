@@ -12,11 +12,12 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netinet/tcp.h>
+#include <signal.h>
 
 #include "aes256cbc.h"
 
 #define PIPE_SIZE    32768 // splice pipe buffer size
-#define HS_BUFF_SIZE 128   // handshake buffer size
+#define HS_BUFF_SIZE 64    // handshake buffer size
 #define MAX_EVENTS   20    // max epoll event for each epoll frame
 
 const char *HS_DONE         = "200"; // handshake finished
@@ -25,6 +26,13 @@ const char *HS_BAD_REQ      = "400"; // incomplete handshake request
 const char *HS_BAD_ADDR     = "401"; // decrypt backend address failed or parse failed
 const char *HS_DIAL_ERR     = "500"; // can't connect to backend
 const char *HS_DIAL_TIMEOUT = "504"; // connect to backend timeout
+
+// catch SIGTERM
+int gw_stop = 0;
+void interrupt(int signal_id)
+{
+   gw_stop = 1;
+}
 
 // handshake state
 struct gw_hs_state {
@@ -84,8 +92,7 @@ gw_add_conn(int pd, int fd, struct gw_conn *del_poll[]) {
 	}
 	if (fcntl(conn->pipe[1], F_SETPIPE_SZ, PIPE_SIZE) != PIPE_SIZE) {
 		fprintf(stderr, "Can't set pipe buffer size - %s\n", strerror(errno));
-		free(conn);
-		return NULL;
+		goto FAIL;
 	}
 	conn->fd = fd;
 	conn->del_poll = del_poll;
@@ -95,12 +102,15 @@ gw_add_conn(int pd, int fd, struct gw_conn *del_poll[]) {
 	event.events = EPOLLIN | EPOLLOUT | EPOLLRDHUP | EPOLLET;
 	if (epoll_ctl(pd, EPOLL_CTL_ADD, fd, &event) != 0) {
 		fprintf(stderr, "Can't add socket into epoll - %s\n", strerror(errno));
-		close(conn->pipe[0]);
-		close(conn->pipe[1]);
-		free(conn);
-		return NULL;
+		goto FAIL;
 	}
 	return conn;
+	
+FAIL:
+	close(conn->pipe[0]);
+	close(conn->pipe[1]);
+	free(conn);
+	return NULL;
 }
 
 static void
@@ -133,7 +143,6 @@ gw_del_conn(struct gw_conn *conn) {
 
 static void
 gw_free_conn(int pd, struct gw_conn *conn) {
-	printf("Connection closed\n");
 	if (conn->hs_state != NULL) {
 		free(conn->hs_state);
 	}
@@ -162,20 +171,20 @@ gw_listen(char *addr) {
 	int lsn = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK , 0);
 	if (lsn < 0) {
 		fprintf(stderr, "Can't create listener - %s\n", strerror(errno));
-		return -1;
+		goto FAIL;
 	}
 	
 	int opt = 1;
 	if (setsockopt(lsn, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) != 0) {
-		close(lsn);
 		fprintf(stderr, "Can't set SO_REUSEADDR on listener - %s\n", strerror(errno));
-		return -1;
+		goto FAIL;
 	}
 	
 	// parse address
 	char *clone = strchr(addr, ':');
 	if (clone == NULL) {
-		return -1;
+		fprintf(stderr, "Can't parse address - %s\n", addr);
+		goto FAIL;
 	}
 	addr[clone - addr] = '\0';
 	struct sockaddr_in lsn_addr;
@@ -185,25 +194,26 @@ gw_listen(char *addr) {
 	socklen_t addr_len = sizeof(struct sockaddr_in);
 	
 	if (bind(lsn, (struct sockaddr *)&lsn_addr, addr_len) != 0) {
-		close(lsn);
 		fprintf(stderr, "Can't bind address %s:%s - %s\n", addr, (clone + 1), strerror(errno));
-		return -1;
+		goto FAIL;
 	}
 	
 	if (listen(lsn, 128) != 0) {
-		close(lsn);
 		fprintf(stderr, "Can't listen - %s\n", strerror(errno));
-		return -1;
+		goto FAIL;
 	}
 	
 	if (getsockname(lsn, (struct sockaddr *)&lsn_addr, &addr_len) != 0) {
-		close(lsn);
 		fprintf(stderr, "Can't get listener address - %s\n", strerror(errno));
-		return -1;
+		goto FAIL;
 	}
 	
-	printf("Setup proxy at %s:%d\n", inet_ntoa(lsn_addr.sin_addr), ntohs(lsn_addr.sin_port));
+	fprintf(stderr, "Setup proxy at %s:%d\n", inet_ntoa(lsn_addr.sin_addr), ntohs(lsn_addr.sin_port));
 	return lsn;
+	
+FAIL:
+	close(lsn);
+	return -1;
 }
 
 static int
@@ -231,7 +241,6 @@ gw_accept(int pd, int lsn, struct gw_conn *del_poll[]) {
 			gw_del_conn(conn);
 			continue;
 		}
-		printf("New client from %s:%d\n", inet_ntoa(addr.sin_addr), ntohs(addr.sin_port));
 	}
 	return 0;
 }
@@ -418,7 +427,7 @@ gw_loop(int pd, int lsn, char *secret) {
 	for (;;) {
 		int rc = epoll_wait(pd, readys, MAX_EVENTS, -1);
 		if (rc < 0) {
-			if (errno == EINTR) {
+			if (errno == EINTR && !gw_stop) {
 				continue;
 			}
 			break;
@@ -520,8 +529,10 @@ main(int argc, char *argv[]) {
 	char *secret = getenv("GW_SECRET");
 	if (secret == NULL) {
 		fprintf(stderr, "Missing GW_SECRET environment variable\n");
-		return -1;
+		return 1;
 	}
+	
+	int ret = 1;
 
 	// create a nonblock listener
 	char *addr = getenv("GW_ADDR");
@@ -530,16 +541,13 @@ main(int argc, char *argv[]) {
 	}
 	int lsn = gw_listen(addr);
 	if (lsn < 0) {
-		free(addr);
-		return -1;
+		goto END;
 	}
 	
 	int pd = epoll_create(10);
 	if (pd < 0) {
-		free(addr);
-		close(lsn);
 		fprintf(stderr, "Can't create epoll - %s\n", strerror(errno));
-		return -1;
+		goto END;
 	}
 
 	// listener event
@@ -547,29 +555,39 @@ main(int argc, char *argv[]) {
 	event.data.ptr = NULL;
 	event.events = EPOLLIN | EPOLLET;
 	if (epoll_ctl(pd, EPOLL_CTL_ADD, lsn, &event) != 0) {
-		free(addr);
-		close(lsn);
 		fprintf(stderr, "Can't add listener into epoll - %s\n", strerror(errno));
-		return -1;
+		goto END;
 	}
 	
 	FILE *pid_file = fopen("gateway.pid", "w");
 	if (pid_file == NULL || fprintf(pid_file, "%d", getpid()) < 0) {
-		free(addr);
-		close(lsn);
-		close(pd);
 		fprintf(stderr, "Can't record process ID - %s\n", strerror(errno));
-		return -1;
+		goto END;
 	}
 	fclose(pid_file);
 	
+	// catch SIGTERM
+	struct sigaction sa;
+	memset(&sa, 0, sizeof(struct sigaction *));
+	sa.sa_handler = interrupt;
+	sa.sa_flags = 0;
+	sigemptyset (&(sa.sa_mask));
+	if (sigaction(SIGTERM, &sa, NULL) != 0) {
+		fprintf(stderr, "Can't catch SIGTERM signal - %s\n", strerror(errno));
+		goto END;
+	}
+   
 	// event loop
+	fprintf(stderr, "Getway running, pid = %d\n", getpid());
 	gw_loop(pd, lsn, secret);
+	ret = 0;
+	fprintf(stderr, "Getway killed\n");
 	
+END:
 	// dispose things
-	free(addr);
-	close(lsn);
-	close(pd);
-	remove("gateway.pid");
-	return 0;
+	if (addr)    free(addr);
+	if (lsn > 0) close(lsn);
+	if (pd > 0)  close(pd);
+	if (pid_file) remove("gateway.pid");
+	return ret;
 }
