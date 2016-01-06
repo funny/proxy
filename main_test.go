@@ -4,7 +4,6 @@ import (
 	"io"
 	"math/rand"
 	"net"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -15,12 +14,7 @@ import (
 
 func init() {
 	isTest = true
-	os.Setenv("GW_SECRET", "test")
-	os.Setenv("GW_ADDR", "")
-	os.Setenv("GW_DIAL_TIMEOUT", "1")
-	os.Setenv("GW_DIAL_RETRY", "1")
-	os.Setenv("GW_PPROF_ADDR", "0.0.0.0:0")
-	os.Setenv("GW_BUFF_SIZE", "32000")
+	cfgSecret = []byte("test")
 	go main()
 	time.Sleep(time.Second * 2)
 }
@@ -34,75 +28,14 @@ func RandBytes(n int) []byte {
 	return b
 }
 
-func Test_Config(t *testing.T) {
-	os.Setenv("GW_DIAL_TIMEOUT", "")
-	os.Setenv("GW_DIAL_RETRY", "")
-	os.Setenv("GW_PPROF_ADDR", "")
-
-	os.Setenv("GW_SECRET", "")
-	func() {
-		defer func() {
-			err := recover()
-			utest.NotNilNow(t, err)
-			utest.Assert(t, strings.Contains(err.(string), "GW_SECRET"))
-		}()
-		config()
-	}()
-	os.Setenv("GW_SECRET", "test")
-
-	os.Setenv("GW_DIAL_RETRY", "a")
-	func() {
-		defer func() {
-			err := recover()
-			utest.NotNilNow(t, err)
-			utest.Assert(t, strings.Contains(err.(string), "GW_DIAL_RETRY"))
-		}()
-		config()
-	}()
-	os.Setenv("GW_DIAL_RETRY", "0")
-
-	os.Setenv("GW_DIAL_TIMEOUT", "a")
-	func() {
-		defer func() {
-			err := recover()
-			utest.NotNilNow(t, err)
-			utest.Assert(t, strings.Contains(err.(string), "GW_DIAL_TIMEOUT"))
-		}()
-		config()
-	}()
-	os.Setenv("GW_DIAL_TIMEOUT", "0")
-
-	os.Setenv("GW_PPROF_ADDR", "abc")
-	func() {
-		defer func() {
-			err := recover()
-			utest.NotNilNow(t, err)
-			utest.Assert(t, strings.Contains(err.(string), "pprof"))
-		}()
-		config()
-	}()
-	os.Setenv("GW_PPROF_ADDR", "")
-
-	os.Setenv("GW_BUFF_SIZE", "abc")
-	func() {
-		defer func() {
-			err := recover()
-			utest.NotNilNow(t, err)
-			utest.Assert(t, strings.Contains(err.(string), "GW_BUFF_SIZE"))
-		}()
-		config()
-	}()
-	os.Setenv("GW_BUFF_SIZE", "0")
-	cfgBufferSize = 32 * 1024
-
-	utest.EqualNow(t, cfgDialRetry, 1)
-	utest.EqualNow(t, int(cfgDialTimeout), int(3*time.Second))
-	cfgDialTimeout = time.Second
-}
-
 func Test_Start(t *testing.T) {
+	oldAddr := cfgGatewayAddr
+	defer func() {
+		cfgGatewayAddr = oldAddr
+	}()
+
 	cfgReusePort = true
-	cfgAddr = "abc"
+	cfgGatewayAddr = "abc"
 	func() {
 		defer func() {
 			err := recover()
@@ -114,7 +47,7 @@ func Test_Start(t *testing.T) {
 }
 
 func Test_BadReq1(t *testing.T) {
-	conn, err := net.Dial("tcp", gatewayAddr)
+	conn, err := net.Dial("tcp", cfgGatewayAddr)
 	utest.IsNilNow(t, err)
 	defer conn.Close()
 
@@ -128,7 +61,7 @@ func Test_BadReq1(t *testing.T) {
 }
 
 func Test_BadReq2(t *testing.T) {
-	conn, err := net.Dial("tcp", gatewayAddr)
+	conn, err := net.Dial("tcp", cfgGatewayAddr)
 	utest.IsNilNow(t, err)
 	defer conn.Close()
 
@@ -145,7 +78,7 @@ func Test_BadReq2(t *testing.T) {
 }
 
 func Test_BadAddr(t *testing.T) {
-	conn, err := net.Dial("tcp", gatewayAddr)
+	conn, err := net.Dial("tcp", cfgGatewayAddr)
 	utest.IsNilNow(t, err)
 	defer conn.Close()
 
@@ -159,7 +92,7 @@ func Test_BadAddr(t *testing.T) {
 }
 
 func Test_CodeDialErr(t *testing.T) {
-	conn, err := net.Dial("tcp", gatewayAddr)
+	conn, err := net.Dial("tcp", cfgGatewayAddr)
 	utest.IsNilNow(t, err)
 	defer conn.Close()
 
@@ -179,7 +112,7 @@ func Test_CodeDialErr(t *testing.T) {
 
 func Test_DialTimeout(t *testing.T) {
 	oldTimeout := cfgDialTimeout
-	cfgDialTimeout = 10 * time.Microsecond
+	cfgDialTimeout = 10
 	defer func() {
 		cfgDialTimeout = oldTimeout
 	}()
@@ -188,7 +121,7 @@ func Test_DialTimeout(t *testing.T) {
 	utest.IsNilNow(t, err)
 	defer listener.Close()
 
-	conn, err := net.Dial("tcp", gatewayAddr)
+	conn, err := net.Dial("tcp", cfgGatewayAddr)
 	utest.IsNilNow(t, err)
 	defer conn.Close()
 
@@ -211,7 +144,7 @@ func Test_OK(t *testing.T) {
 	utest.IsNilNow(t, err)
 	defer listener.Close()
 
-	conn, err := net.Dial("tcp", gatewayAddr)
+	conn, err := net.Dial("tcp", cfgGatewayAddr)
 	utest.IsNilNow(t, err)
 	defer conn.Close()
 
@@ -328,7 +261,7 @@ func Test_Transfer(t *testing.T) {
 	}()
 
 	for i := 0; i < 20; i++ {
-		conn, err := net.Dial("tcp", gatewayAddr)
+		conn, err := net.Dial("tcp", cfgGatewayAddr)
 		utest.IsNilNow(t, err)
 		defer conn.Close()
 

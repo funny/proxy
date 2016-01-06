@@ -93,17 +93,17 @@ U2FsdGVkX19KIJ9OQJKT/yHGMrS+5SsBAAjetomptQ0=\n
 设置
 ====
 
-网关可以通过以下环境变量进行设置：
+网关可以通过以下命令行参数进行设置：
 
 | 变量 | 用途 |
 |-----|----|
-| GW_SECRET | 解密地址用的秘钥，必须设置 |
-| GW_ADDR | 网关服务器地址，默认为0.0.0.0:0 |
-| GW_REUSE_PORT | 是否启用端口重用特性，值为1时表示启用，默认为0 |
-| GW_PPROF_ADDR | [`net/http/pprof`](https://golang.org/pkg/net/http/pprof/)所使用的地址，建议是内网地址，无值的时候不开启，默认无值 |
-| GW_DIAL_RETRY | 网关连接目标服务器的重试次数，默认为1 |
-| GW_DIAL_TIMEOUT | 网关每次连接目标服务器的超时时间，单位是秒，默认为3 |
-| GW_BUFF_SIZE | 用来进行[`io.CopyBuffer`](https://golang.org/pkg/io/#CopyBuffer)的缓冲大小，只支持Go 1.5以上版本 |
+| `secret` | 解密地址用的秘钥，必须设置 |
+| `addr` | 网关服务器地址，默认为0.0.0.0:0 |
+| `reuse` | 是否启用端口重用特性，值为1时表示启用，默认为0 |
+| `pprof` | [`net/http/pprof`](https://golang.org/pkg/net/http/pprof/)所使用的地址，建议是内网地址，无值的时候不开启，默认无值 |
+| `retry` | 网关连接目标服务器的重试次数，默认为1 |
+| `timeout` | 网关每次连接目标服务器的超时时间，单位是秒，默认为3 |
+| `buffer` | 用来进行[`io.CopyBuffer`](https://golang.org/pkg/io/#CopyBuffer)的缓冲大小，只对Go 1.5以上版本有效 |
 
 网关启动后，会在工作目录下生成一个`gateway.pid`文件记录进程id，可以用以下命令安全退出网关：
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -23,12 +24,14 @@ import (
 const miniBufferSize = 1024
 
 var (
+	configed       = false
 	cfgSecret      []byte
-	cfgAddr        = "0.0.0.0:0"
+	cfgGatewayAddr = "0.0.0.0:0"
+	cfgPprofAddr   = ""
 	cfgReusePort   = false
-	cfgDialRetry   = 1
-	cfgDialTimeout = 3 * time.Second
-	cfgBufferSize  = 8 * 1024
+	cfgDialRetry   = uint(1)
+	cfgDialTimeout = uint(3)
+	cfgBufferSize  = uint(16 * 1024)
 
 	codeOK          = []byte("200")
 	codeBadReq      = []byte("400")
@@ -36,20 +39,59 @@ var (
 	codeDialErr     = []byte("502")
 	codeDialTimeout = []byte("504")
 
-	isTest      bool
-	gatewayAddr string
-	bufferPool  sync.Pool
+	isTest     bool
+	bufferPool sync.Pool
 )
 
+func init() {
+	var secret string
+	flag.StringVar(&secret, "secret", "", "The passphrase used to decrypt target server address")
+	flag.StringVar(&cfgGatewayAddr, "addr", cfgGatewayAddr, "Network address for gateway")
+	flag.StringVar(&cfgPprofAddr, "pprof", cfgPprofAddr, "Network address for net/http/pprof")
+	flag.BoolVar(&cfgReusePort, "reuse", cfgReusePort, "Enable reuse port feature")
+	flag.UintVar(&cfgDialRetry, "retry", cfgDialRetry, "Retry times when dial to target server timeout")
+	flag.UintVar(&cfgDialTimeout, "timeout", cfgDialTimeout, "Timeout seconds when dial to targer server")
+	flag.UintVar(&cfgBufferSize, "buffer", cfgBufferSize, "Buffer size for io.CopyBuffer()")
+	flag.Parse()
+
+	cfgSecret = []byte(secret)
+
+	cfgDialTimeout = uint(time.Second) * cfgDialTimeout
+
+	bufferPool.New = func() interface{} {
+		return make([]byte, cfgBufferSize)
+	}
+}
+
 func main() {
+	if len(cfgSecret) == 0 {
+		fatal("Missing passphrase")
+		return
+	}
+
+	if cfgPprofAddr != "" {
+		listener, err := net.Listen("tcp", cfgPprofAddr)
+		if err != nil {
+			fatalf("Setup pprof failed: %s", err)
+		}
+		printf("Setup pprof at %s", listener.Addr())
+		go http.Serve(listener, nil)
+	}
+
 	pid := syscall.Getpid()
 	if err := ioutil.WriteFile("gateway.pid", []byte(strconv.Itoa(pid)), 0644); err != nil {
 		log.Fatalf("Can't write pid file: %s", err)
 	}
 	defer os.Remove("gateway.pid")
 
-	config()
 	start()
+
+	printf("Gateway address: %s", cfgGatewayAddr)
+	printf("Reuse port: %v", cfgReusePort)
+	printf("Dial retry: %d", cfgDialRetry)
+	printf("Dial timeout: %s", time.Duration(cfgDialTimeout))
+	printf("Buffer size: %d", cfgBufferSize)
+	printf("Passphrase: %s", cfgSecret)
 
 	sigTERM := make(chan os.Signal, 1)
 	signal.Notify(sigTERM, syscall.SIGTERM)
@@ -78,84 +120,21 @@ func printf(t string, args ...interface{}) {
 	}
 }
 
-func config() {
-	if cfgSecret = []byte(os.Getenv("GW_SECRET")); len(cfgSecret) == 0 {
-		fatal("GW_SECRET is required")
-	}
-	printf("GW_SECRET=%s", cfgSecret)
-
-	if cfgAddr = os.Getenv("GW_ADDR"); cfgAddr == "" {
-		cfgAddr = "0.0.0.0:0"
-	}
-	printf("GW_ADDR=%s", cfgAddr)
-
-	cfgReusePort = os.Getenv("GW_REUSE_PORT") == "1"
-
-	var err error
-
-	if v := os.Getenv("GW_DIAL_RETRY"); v != "" {
-		cfgDialRetry, err = strconv.Atoi(v)
-		if err != nil {
-			fatalf("GW_DIAL_RETRY - %s", err)
-		}
-		if cfgDialRetry == 0 {
-			cfgDialRetry = 1
-		}
-	}
-	printf("GW_DIAL_RETRY=%d", cfgDialRetry)
-
-	var timeout int
-	if v := os.Getenv("GW_DIAL_TIMEOUT"); v != "" {
-		timeout, err = strconv.Atoi(v)
-		if err != nil {
-			fatalf("GW_DIAL_TIMEOUT - %s", err)
-		}
-	}
-	if timeout == 0 {
-		timeout = 3
-	}
-	cfgDialTimeout = time.Duration(timeout) * time.Second
-	printf("GW_DIAL_TIMEOUT=%d", timeout)
-
-	if v := os.Getenv("GW_PPROF_ADDR"); v != "" {
-		listener, err := net.Listen("tcp", v)
-		if err != nil {
-			fatalf("Setup pprof failed: %s", err)
-		}
-		printf("Setup pprof at %s", listener.Addr())
-		go http.Serve(listener, nil)
-	}
-
-	if v := os.Getenv("GW_BUFF_SIZE"); v != "" {
-		cfgBufferSize, err = strconv.Atoi(v)
-		if err != nil {
-			fatalf("GW_BUFF_SIZE - %s", err)
-		}
-		if cfgBufferSize < miniBufferSize {
-			cfgBufferSize = miniBufferSize
-		}
-	}
-	printf("GW_BUFF_SIZE=%d", cfgBufferSize)
-	bufferPool.New = func() interface{} {
-		return make([]byte, cfgBufferSize)
-	}
-}
-
 func start() {
 	var err error
 	var listener net.Listener
 
 	if cfgReusePort {
-		listener, err = reuseport.NewReusablePortListener("tcp4", cfgAddr)
+		listener, err = reuseport.NewReusablePortListener("tcp4", cfgGatewayAddr)
 	} else {
-		listener, err = net.Listen("tcp", cfgAddr)
+		listener, err = net.Listen("tcp", cfgGatewayAddr)
 	}
 	if err != nil {
 		fatalf("Setup listener failed: %s", err)
 	}
 
-	gatewayAddr = listener.Addr().String()
-	printf("Setup gateway at %s", gatewayAddr)
+	cfgGatewayAddr = listener.Addr().String()
+	printf("Setup gateway at %s", cfgGatewayAddr)
 	go loop(listener)
 }
 
@@ -250,8 +229,8 @@ func handshake(conn net.Conn) (agent net.Conn) {
 	}
 
 	// dial to target server
-	for i := 0; i < cfgDialRetry; i++ {
-		agent, err = net.DialTimeout("tcp", string(addr), cfgDialTimeout)
+	for i := uint(0); i < cfgDialRetry; i++ {
+		agent, err = net.DialTimeout("tcp", string(addr), time.Duration(cfgDialTimeout))
 		if err == nil {
 			break
 		}
