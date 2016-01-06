@@ -115,6 +115,19 @@ func Test_BadReq2(t *testing.T) {
 	utest.EqualNow(t, string(code), string(codeBadReq))
 }
 
+func Test_BadReq3(t *testing.T) {
+	conn, err := net.Dial("tcp", cfgGatewayAddr)
+	utest.IsNilNow(t, err)
+	defer conn.Close()
+
+	_, err = conn.Write(make([]byte, 128))
+	utest.IsNilNow(t, err)
+	code := make([]byte, 3)
+	_, err = io.ReadFull(conn, code)
+	utest.IsNilNow(t, err)
+	utest.EqualNow(t, string(code), string(codeBadReq))
+}
+
 func Test_BadAddr(t *testing.T) {
 	conn, err := net.Dial("tcp", cfgGatewayAddr)
 	utest.IsNilNow(t, err)
@@ -122,7 +135,6 @@ func Test_BadAddr(t *testing.T) {
 
 	_, err = conn.Write([]byte("abc\n"))
 	utest.IsNilNow(t, err)
-
 	code := make([]byte, 3)
 	_, err = io.ReadFull(conn, code)
 	utest.IsNilNow(t, err)
