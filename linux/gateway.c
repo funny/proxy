@@ -28,10 +28,9 @@ const char *HS_DIAL_ERR     = "500"; // can't connect to backend
 const char *HS_DIAL_TIMEOUT = "504"; // connect to backend timeout
 
 // catch SIGTERM
-int gw_stop = 0;
-void interrupt(int signal_id)
-{
-   gw_stop = 1;
+int gw_stop_flag = 0;
+void gw_stop(int signal_id) {
+   gw_stop_flag = 1;
 }
 
 // handshake state
@@ -427,7 +426,7 @@ gw_loop(int pd, int lsn, char *secret) {
 	for (;;) {
 		int rc = epoll_wait(pd, readys, MAX_EVENTS, -1);
 		if (rc < 0) {
-			if (errno == EINTR && !gw_stop) {
+			if (errno == EINTR && !gw_stop_flag) {
 				continue;
 			}
 			break;
@@ -569,7 +568,7 @@ main(int argc, char *argv[]) {
 	// catch SIGTERM
 	struct sigaction sa;
 	memset(&sa, 0, sizeof(struct sigaction *));
-	sa.sa_handler = interrupt;
+	sa.sa_handler = gw_stop;
 	sa.sa_flags = 0;
 	sigemptyset (&(sa.sa_mask));
 	if (sigaction(SIGTERM, &sa, NULL) != 0) {
