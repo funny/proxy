@@ -28,19 +28,57 @@ func RandBytes(n int) []byte {
 	return b
 }
 
-func Test_Start(t *testing.T) {
+func Test_Fatals(t *testing.T) {
+	// missing passphrase
+	oldSecret := cfgSecret
+	defer func() {
+		cfgSecret = oldSecret
+	}()
+	cfgSecret = nil
+	func() {
+		defer func() {
+			err := recover()
+			utest.NotNilNow(t, err)
+			utest.Assert(t, strings.Contains(err.(string), "Missing passphrase"))
+		}()
+		main()
+	}()
+	cfgSecret = oldSecret
+
+	// bad pprof address
+	cfgPprofAddr = "xxoo"
+	func() {
+		defer func() {
+			err := recover()
+			utest.NotNilNow(t, err)
+			utest.Assert(t, strings.Contains(err.(string), "Setup pprof failed"))
+		}()
+		main()
+	}()
+	cfgPprofAddr = "0.0.0.0:0"
+
+	// bad gateway address
 	oldAddr := cfgGatewayAddr
 	defer func() {
 		cfgGatewayAddr = oldAddr
 	}()
-
-	cfgReusePort = true
 	cfgGatewayAddr = "abc"
 	func() {
 		defer func() {
 			err := recover()
 			utest.NotNilNow(t, err)
-			utest.Assert(t, strings.Contains(err.(string), "listener"))
+			utest.Assert(t, strings.Contains(err.(string), "Setup listener failed"))
+		}()
+		start()
+	}()
+
+	// bad gateway address with reuse port
+	cfgReusePort = true
+	func() {
+		defer func() {
+			err := recover()
+			utest.NotNilNow(t, err)
+			utest.Assert(t, strings.Contains(err.(string), "Setup listener failed"))
 		}()
 		start()
 	}()
