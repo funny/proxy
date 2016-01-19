@@ -363,7 +363,7 @@ func Benchmark_BufPool1(b *testing.B) {
 		buf = testBufPool1.Get().([]byte)
 		testBufPool1.Put(buf)
 	}
-	buf = buf
+	_ = buf
 }
 
 func Benchmark_BufPool2(b *testing.B) {
@@ -373,5 +373,5 @@ func Benchmark_BufPool2(b *testing.B) {
 		buf = *b
 		testBufPool2.Put(b)
 	}
-	buf = buf
+	_ = buf
 }
