@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"net"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -341,4 +342,36 @@ func Test_Transfer(t *testing.T) {
 			utest.EqualNow(t, b1, b2)
 		}
 	}
+}
+
+var testBufPool1 = sync.Pool{
+	New: func() interface{} {
+		return make([]byte, 64)
+	},
+}
+
+var testBufPool2 = sync.Pool{
+	New: func() interface{} {
+		buf := make([]byte, 64)
+		return &buf
+	},
+}
+
+func Benchmark_BufPool1(b *testing.B) {
+	var buf []byte
+	for i := 0; i < b.N; i++ {
+		buf = testBufPool1.Get().([]byte)
+		testBufPool1.Put(buf)
+	}
+	buf = buf
+}
+
+func Benchmark_BufPool2(b *testing.B) {
+	var buf []byte
+	for i := 0; i < b.N; i++ {
+		b := testBufPool2.Get().(*[]byte)
+		buf = *b
+		testBufPool2.Put(b)
+	}
+	buf = buf
 }

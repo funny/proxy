@@ -50,7 +50,12 @@ struct gw_conn {
 	struct gw_conn *other;
 	struct gw_conn **del_poll;
 	struct gw_hs_state *hs_state;
+	struct gw_conn *prev;
+	struct gw_conn *next;
 };
+
+// all connections
+struct gw_conn *gw_conn_list;
 
 static struct gw_conn *
 gw_add_conn(int pd, int fd, struct gw_conn *del_poll[]) {
@@ -577,9 +582,9 @@ main(int argc, char *argv[]) {
 	}
    
 	// event loop
+	ret = 0;
 	fprintf(stderr, "Getway running, pid = %d\n", getpid());
 	gw_loop(pd, lsn, secret);
-	ret = 0;
 	fprintf(stderr, "Getway killed\n");
 	
 END:

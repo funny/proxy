@@ -5,7 +5,8 @@ package main
 import "io"
 
 func copy(dst io.WriteCloser, src io.ReadCloser) {
-	buf := bufferPool.Get().([]byte)
+	b := copyBufPool.Get().(*[]byte)
+	buf := *b
 	io.CopyBuffer(dst, src, buf)
-	bufferPool.Put(buf)
+	copyBufPool.Put(b)
 }

@@ -39,8 +39,9 @@ var (
 	codeDialErr     = []byte("502")
 	codeDialTimeout = []byte("504")
 
-	isTest     bool
-	bufferPool sync.Pool
+	isTest           bool
+	handshakeBufPool sync.Pool
+	copyBufPool      sync.Pool
 )
 
 func init() {
@@ -58,8 +59,14 @@ func init() {
 
 	cfgDialTimeout = uint(time.Second) * cfgDialTimeout
 
-	bufferPool.New = func() interface{} {
-		return make([]byte, cfgBufferSize)
+	handshakeBufPool.New = func() interface{} {
+		buf := make([]byte, 64)
+		return &buf
+	}
+
+	copyBufPool.New = func() interface{} {
+		buf := make([]byte, cfgBufferSize)
+		return &buf
 	}
 }
 
@@ -214,12 +221,13 @@ func handle(conn net.Conn) {
 }
 
 func handshake(conn net.Conn) (agent net.Conn) {
-	var addr []byte
-	var remain []byte
+	var b = handshakeBufPool.Get().(*[]byte)
+	buf := *b
+	defer handshakeBufPool.Put(b)
 
 	// read and decrypt target server address
-	var buf [64]byte
 	var err error
+	var addr, remain []byte
 	for n, nn := 0, 0; n < len(buf); n += nn {
 		nn, err = conn.Read(buf[n:])
 		if err != nil {
