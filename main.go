@@ -60,7 +60,7 @@ func init() {
 	cfgDialTimeout = uint(time.Second) * cfgDialTimeout
 
 	handshakeBufPool.New = func() interface{} {
-		buf := make([]byte, 64)
+		buf := make([]byte, 64 /* longest crypted address */ + 1 /* \n */)
 		return &buf
 	}
 
