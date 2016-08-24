@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/funny/crypto/aes256cbc"
-	"github.com/funny/reuseport"
 )
 
 const miniBufferSize = 1024
@@ -60,7 +59,7 @@ func init() {
 	cfgDialTimeout = uint(time.Second) * cfgDialTimeout
 
 	handshakeBufPool.New = func() interface{} {
-		buf := make([]byte, 64 /* longest crypted address */ + 1 /* \n */)
+		buf := make([]byte, 64 /* longest crypted address */ +1 /* \n */)
 		return &buf
 	}
 
@@ -141,18 +140,10 @@ func printf(t string, args ...interface{}) {
 }
 
 func start() {
-	var err error
-	var listener net.Listener
-
-	if cfgReusePort {
-		listener, err = reuseport.NewReusablePortListener("tcp4", cfgGatewayAddr)
-	} else {
-		listener, err = net.Listen("tcp", cfgGatewayAddr)
-	}
+	listener, err := listen()
 	if err != nil {
 		fatalf("Setup listener failed: %s", err)
 	}
-
 	cfgGatewayAddr = listener.Addr().String()
 	go loop(listener)
 }
